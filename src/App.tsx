@@ -10,6 +10,7 @@ import {
 } from './components/AirHockey3D';
 import { FirebaseTester } from './components/FirebaseTester';
 import { MultiplayerModal } from './components/MultiplayerModal';
+import { GitHubDeployModal } from './components/GitHubDeployModal';
 import { sound } from './services/sound';
 import {
   auth,
@@ -48,7 +49,8 @@ import {
   Menu,
   X,
   Sliders,
-  Users
+  Users,
+  Github
 } from 'lucide-react';
 
 export default function App() {
@@ -91,6 +93,7 @@ export default function App() {
   // Modals
   const [isTesterOpen, setIsTesterOpen] = useState(false);
   const [isMultiplayerOpen, setIsMultiplayerOpen] = useState(false);
+  const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
 
   // Firebase status indicator
   const [firebaseStatus, setFirebaseStatus] = useState<{
@@ -396,6 +399,17 @@ export default function App() {
                     </button>
                   </div>
                 )}
+
+                {/* GitHub Deploy Button */}
+                <div className="pt-2 border-t border-slate-800">
+                  <button
+                    onClick={() => { setIsGitHubModalOpen(true); setIsMenuOpen(false); }}
+                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-bold transition text-xs shadow"
+                  >
+                    <Github className="w-4 h-4 text-cyan-400" />
+                    <span>Deploy to GitHub</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -477,6 +491,11 @@ export default function App() {
         isOpen={isMultiplayerOpen}
         onClose={() => setIsMultiplayerOpen(false)}
         onStartOnlineMatch={handleStartOnlineMatch}
+      />
+
+      <GitHubDeployModal
+        isOpen={isGitHubModalOpen}
+        onClose={() => setIsGitHubModalOpen(false)}
       />
 
     </div>
