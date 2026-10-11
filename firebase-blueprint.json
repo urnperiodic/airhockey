@@ -1,0 +1,198 @@
+{
+  "entities": {
+    "TestConnection": {
+      "title": "Test Connection",
+      "description": "Diagnostic and test entity for verifying Firebase Firestore connectivity",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique test document identifier"
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of the connection test (e.g. ok, ping)"
+        },
+        "message": {
+          "type": "string",
+          "description": "Test message payload",
+          "maxLength": 500
+        },
+        "testedBy": {
+          "type": "string",
+          "description": "User identifier who performed the test"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        }
+      },
+      "required": ["id", "status", "message", "testedBy", "createdAt"]
+    },
+    "AirHockeyRoom": {
+      "title": "Air Hockey Room",
+      "description": "Multiplayer air hockey match room holding state, players, and scores",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Room ID"
+        },
+        "roomCode": {
+          "type": "string",
+          "description": "Short human-readable room code",
+          "maxLength": 8
+        },
+        "title": {
+          "type": "string",
+          "description": "Room display title",
+          "maxLength": 60
+        },
+        "hostId": {
+          "type": "string",
+          "description": "UID of the hosting player"
+        },
+        "hostName": {
+          "type": "string",
+          "description": "Display name of host",
+          "maxLength": 30
+        },
+        "guestId": {
+          "type": "string",
+          "description": "UID of the guest player",
+          "maxLength": 128
+        },
+        "guestName": {
+          "type": "string",
+          "description": "Display name of guest",
+          "maxLength": 30
+        },
+        "status": {
+          "type": "string",
+          "description": "Current room state: waiting, playing, finished, abandoned"
+        },
+        "hostScore": {
+          "type": "number",
+          "description": "Host score"
+        },
+        "guestScore": {
+          "type": "number",
+          "description": "Guest score"
+        },
+        "winningScore": {
+          "type": "number",
+          "description": "Target score to win match"
+        },
+        "winnerId": {
+          "type": "string",
+          "description": "UID of winner once finished",
+          "maxLength": 128
+        },
+        "lastUpdateBy": {
+          "type": "string",
+          "description": "Player UID who last synced position or score"
+        },
+        "puckX": {
+          "type": "number",
+          "description": "Normalized puck X position (0 to 1)"
+        },
+        "puckY": {
+          "type": "number",
+          "description": "Normalized puck Y position (0 to 1)"
+        },
+        "puckVx": {
+          "type": "number",
+          "description": "Normalized puck X velocity"
+        },
+        "puckVy": {
+          "type": "number",
+          "description": "Normalized puck Y velocity"
+        },
+        "hostPaddleX": {
+          "type": "number",
+          "description": "Normalized host paddle X"
+        },
+        "hostPaddleY": {
+          "type": "number",
+          "description": "Normalized host paddle Y"
+        },
+        "guestPaddleX": {
+          "type": "number",
+          "description": "Normalized guest paddle X"
+        },
+        "guestPaddleY": {
+          "type": "number",
+          "description": "Normalized guest paddle Y"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of room creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last activity"
+        }
+      },
+      "required": ["id", "roomCode", "title", "hostId", "hostName", "status", "hostScore", "guestScore", "winningScore", "createdAt", "updatedAt"]
+    },
+    "LeaderboardEntry": {
+      "title": "Leaderboard Entry",
+      "description": "Player game stats, high scores, and win streaks",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Player UID"
+        },
+        "userId": {
+          "type": "string",
+          "description": "User UID"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Player display name",
+          "maxLength": 40
+        },
+        "wins": {
+          "type": "number",
+          "description": "Total games won"
+        },
+        "losses": {
+          "type": "number",
+          "description": "Total games lost"
+        },
+        "goalsScored": {
+          "type": "number",
+          "description": "Total goals scored"
+        },
+        "winStreak": {
+          "type": "number",
+          "description": "Current winning streak"
+        },
+        "highestStreak": {
+          "type": "number",
+          "description": "Best historical winning streak"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["id", "userId", "displayName", "wins", "losses", "goalsScored", "winStreak", "highestStreak", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/test/{testId}": {
+      "schema": "TestConnection",
+      "description": "Diagnostic documents for Firebase testing and health checks"
+    },
+    "/rooms/{roomId}": {
+      "schema": "AirHockeyRoom",
+      "description": "Live air hockey multiplayer rooms and match sessions"
+    },
+    "/leaderboard/{entryId}": {
+      "schema": "LeaderboardEntry",
+      "description": "Global player stats and leaderboard scores"
+    }
+  }
+}

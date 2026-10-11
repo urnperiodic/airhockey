@@ -1,0 +1,6 @@
+{
+  "name": "Neon Air Hockey",
+  "description": "Fast-paced neon air hockey table with online multiplayer, leaderboards, and real-time physics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
