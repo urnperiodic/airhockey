@@ -191,13 +191,13 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     }
   }, [onlineRoom, mode]);
 
-  // Particle explosion helper with collision particle limit
-  const triggerSparks = useCallback((x: number, y: number, z: number, colorHex: number, count = 12) => {
+  // Particle explosion helper with strict collision particle limit and pooling
+  const triggerSparks = useCallback((x: number, y: number, z: number, colorHex: number, count = 8) => {
     const s = stateRef.current;
     if (!s.scene) return;
 
-    // Enforce max active particles limit to prevent performance lag
-    const MAX_PARTICLES = 50;
+    // Enforce max active particles limit (25 max) to guarantee zero lag
+    const MAX_PARTICLES = 25;
     while (s.particles.length + count > MAX_PARTICLES && s.particles.length > 0) {
       const old = s.particles.shift();
       if (old) {
@@ -207,7 +207,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     }
 
     for (let i = 0; i < count; i++) {
-      const geo = new THREE.SphereGeometry(0.08 + Math.random() * 0.06, 6, 6);
+      const geo = new THREE.SphereGeometry(0.08, 4, 4);
       const mat = new THREE.MeshBasicMaterial({
         color: colorHex,
         transparent: true,
@@ -218,13 +218,13 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       s.scene.add(spark);
 
       const angle = Math.random() * Math.PI * 2;
-      const speed = 2 + Math.random() * 6;
+      const speed = 2 + Math.random() * 5;
       s.particles.push({
         mesh: spark,
         vx: Math.cos(angle) * speed,
-        vy: 1.5 + Math.random() * 5,
+        vy: 1.0 + Math.random() * 4,
         vz: Math.sin(angle) * speed,
-        life: 0.35 + Math.random() * 0.3
+        life: 0.25 + Math.random() * 0.25
       });
     }
   }, []);
@@ -658,32 +658,51 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
     const handlePointerMove = (e: MouseEvent | TouchEvent) => {
       const rect = container.getBoundingClientRect();
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-
-      const normX = ((clientX - rect.left) / rect.width) * 2 - 1;
-      const normY = ((clientY - rect.top) / rect.height) * 2 - 1;
-
       const halfW = s.tableWidth / 2;
       const halfL = s.tableLength / 2;
       const p1ClampW = halfW - s.p1MalletRadius - 0.2;
       const p1ClampL = halfL - s.p1MalletRadius - 0.2;
+      const p2ClampL = halfL - s.p2MalletRadius - 0.2;
       const sens = propsRef.current.mouseSensitivityMultiplier || 2.5;
+      const isLocal = propsRef.current.mode === 'local';
 
-      if (propsRef.current.cameraView === 'top') {
-        // High sensitivity direct top-down tracking
-        s.targetP1X = Math.max(-p1ClampW, Math.min(p1ClampW, normX * halfW * sens));
-        // normY: -1 is top, +1 is bottom; player plays on lower half (Z from 0.8 to p1ClampL)
-        // Map vertical motion so comfortable mouse sweep covers player zone
-        const mappedZ = 0.8 + Math.max(0, Math.min(1, (normY + 0.1) * (sens * 0.55))) * (p1ClampL - 0.8);
-        s.targetP1Z = Math.max(0.8, Math.min(p1ClampL, mappedZ));
+      if ('touches' in e) {
+        // Multi-touch support for local 2-player or single player
+        for (let i = 0; i < e.touches.length; i++) {
+          const t = e.touches[i];
+          const clientX = t.clientX;
+          const clientY = t.clientY;
+          const normX = ((clientX - rect.left) / rect.width) * 2 - 1;
+          const normY = ((clientY - rect.top) / rect.height) * 2 - 1;
+
+          if (isLocal && normY < 0) {
+            // Top half of screen controls Player 2 in local 2-player mode
+            s.targetP2X = Math.max(-p1ClampW, Math.min(p1ClampW, normX * (halfW * sens)));
+            const mappedZ = -1.0 - Math.max(0, Math.min(1, (-normY) * (sens * 0.5))) * (p2ClampL - 1.0);
+            s.targetP2Z = Math.max(-p2ClampL, Math.min(-0.6, mappedZ));
+          } else {
+            // Bottom half or single player controls Player 1
+            s.targetP1X = Math.max(-p1ClampW, Math.min(p1ClampW, normX * (halfW * sens)));
+            const mappedZ = 1.0 + Math.max(0, Math.min(1, (normY) * (sens * 0.5))) * (p1ClampL - 1.0);
+            s.targetP1Z = Math.max(0.6, Math.min(p1ClampL, mappedZ));
+          }
+        }
       } else {
-        // First person or standard perspective control with high sensitivity
-        s.targetP1X = Math.max(-p1ClampW, Math.min(p1ClampW, normX * (halfW * sens)));
-        
-        // Map Y to player's table side with boosted sensitivity
-        const mappedZ = 1.0 + Math.max(0, Math.min(1, (normY + 0.8) * 0.8 * (sens * 0.5))) * (p1ClampL - 1.0);
-        s.targetP1Z = Math.max(0.8, Math.min(p1ClampL, mappedZ));
+        // Mouse event
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        const normX = ((clientX - rect.left) / rect.width) * 2 - 1;
+        const normY = ((clientY - rect.top) / rect.height) * 2 - 1;
+
+        if (isLocal && normY < 0) {
+          s.targetP2X = Math.max(-p1ClampW, Math.min(p1ClampW, normX * (halfW * sens)));
+          const mappedZ = -1.0 - Math.max(0, Math.min(1, (-normY) * (sens * 0.5))) * (p2ClampL - 1.0);
+          s.targetP2Z = Math.max(-p2ClampL, Math.min(-0.6, mappedZ));
+        } else {
+          s.targetP1X = Math.max(-p1ClampW, Math.min(p1ClampW, normX * (halfW * sens)));
+          const mappedZ = 1.0 + Math.max(0, Math.min(1, (normY) * (sens * 0.5))) * (p1ClampL - 1.0);
+          s.targetP1Z = Math.max(0.6, Math.min(p1ClampL, mappedZ));
+        }
       }
     };
 
