@@ -29,6 +29,30 @@ function sendPeerPacket(channel: RTCDataChannel | null | undefined, packet: obje
   }
 }
 
+const MALLET_FOLLOW_RESPONSE = -Math.log(0.08) * 60;
+
+function getMalletPosition(
+  x: number,
+  z: number,
+  targetX: number,
+  targetZ: number,
+  dt: number
+): [number, number] {
+  const followFactor = 1 - Math.exp(-MALLET_FOLLOW_RESPONSE * dt);
+  let moveX = (targetX - x) * followFactor;
+  let moveZ = (targetZ - z) * followFactor;
+  const moveDistance = Math.hypot(moveX, moveZ);
+  const maxMoveDistance = 40 * dt;
+
+  if (moveDistance > maxMoveDistance) {
+    const scale = maxMoveDistance / moveDistance;
+    moveX *= scale;
+    moveZ *= scale;
+  }
+
+  return [x + moveX, z + moveZ];
+}
+
 interface AirHockey3DProps {
   mode: GameMode;
   botDifficulty: BotDifficulty;
@@ -663,27 +687,49 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       goalPocket.position.set(0, 0.3, zPos + (isP1 ? 0.7 : -0.7));
       scene.add(goalPocket);
 
-      // Goal Pocket Neon Frame & Netting (clearly visible in top view)
+      // Dark goal net keeps the opening visible without competing with the frame.
       const pocketNetGeo = new THREE.BoxGeometry(s.goalWidth + 0.1, 0.68, 1.48);
       const pocketNetMat = new THREE.MeshBasicMaterial({
-        color: isP1 ? 0x00e5ff : 0xff0066,
+        color: 0x171016,
         wireframe: true,
         transparent: true,
-        opacity: 0.85
+        opacity: 0.35
       });
       const pocketNet = new THREE.Mesh(pocketNetGeo, pocketNetMat);
       pocketNet.position.set(0, 0.34, zPos + (isP1 ? 0.74 : -0.74));
       scene.add(pocketNet);
 
-      // Glowing Goal Posts at opening
-      const postGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.8, 16);
-      const postMat = new THREE.MeshBasicMaterial({ color: isP1 ? 0x00ffff : 0xff0066 });
-      const leftPost = new THREE.Mesh(postGeo, postMat);
-      leftPost.position.set(-s.goalWidth / 2, 0.4, zPos);
-      scene.add(leftPost);
-      const rightPost = new THREE.Mesh(postGeo, postMat);
-      rightPost.position.set(s.goalWidth / 2, 0.4, zPos);
-      scene.add(rightPost);
+      // Solid red goal frame, with supports anchored just outside the goal mouth.
+      const goalFrameMaterial = new THREE.MeshStandardMaterial({
+        color: 0x8f1230,
+        roughness: 0.3,
+        metalness: 0.35
+      });
+      const frameDepth = 0.48;
+      const framePostWidth = 0.42;
+      const frameWidth = s.goalWidth + framePostWidth + 0.3;
+      const framePostHeight = 1.15;
+      const crossbarHeight = 0.34;
+      const crossbarY = framePostHeight + crossbarHeight / 2;
+      const frameZ = zPos;
+
+      const crossbar = new THREE.Mesh(
+        new THREE.BoxGeometry(frameWidth, crossbarHeight, frameDepth),
+        goalFrameMaterial
+      );
+      crossbar.position.set(0, crossbarY, frameZ);
+      crossbar.castShadow = true;
+      crossbar.receiveShadow = true;
+      scene.add(crossbar);
+
+      const framePostGeo = new THREE.BoxGeometry(framePostWidth, framePostHeight, frameDepth);
+      for (const side of [-1, 1]) {
+        const framePost = new THREE.Mesh(framePostGeo, goalFrameMaterial);
+        framePost.position.set(side * (goalHalfW + 0.15), framePostHeight / 2, frameZ);
+        framePost.castShadow = true;
+        framePost.receiveShadow = true;
+        scene.add(framePost);
+      }
 
       // Goal Sensor Neon Glow
       const sensorGeo = new THREE.BoxGeometry(s.goalWidth, 0.1, 0.1);
@@ -1028,9 +1074,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       s.p1PrevZ = s.p1Z;
 
       // Direct responsive physics follow (snappy with zero sluggish lag)
-      const lerpFactor = 0.92;
-      s.p1X += (s.targetP1X - s.p1X) * lerpFactor;
-      s.p1Z += (s.targetP1Z - s.p1Z) * lerpFactor;
+      [s.p1X, s.p1Z] = getMalletPosition(s.p1X, s.p1Z, s.targetP1X, s.targetP1Z, dt);
 
       s.p1Vx = (s.p1X - s.p1PrevX) / dt;
       s.p1Vz = (s.p1Z - s.p1PrevZ) / dt;
@@ -1144,8 +1188,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.p2PrevX = s.p2X;
         s.p2PrevZ = s.p2Z;
 
-        s.p2X += (s.targetP2X - s.p2X) * lerpFactor;
-        s.p2Z += (s.targetP2Z - s.p2Z) * lerpFactor;
+        [s.p2X, s.p2Z] = getMalletPosition(s.p2X, s.p2Z, s.targetP2X, s.targetP2Z, dt);
 
         s.p2Vx = (s.p2X - s.p2PrevX) / dt;
         s.p2Vz = (s.p2Z - s.p2PrevZ) / dt;
@@ -1155,7 +1198,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       const isSimulatingPhysics = currentMode !== 'online_guest';
 
       if (isSimulatingPhysics && !s.gameOver && !s.servePending) {
-        const subSteps = 6;
+        const maxSpd = 50 * propsRef.current.puckSpeedMultiplier;
+        const subSteps = Math.max(6, Math.min(16, Math.ceil(maxSpd * dt / (puckR * 0.5))));
         const subDt = dt / subSteps;
 
         for (let step = 0; step < subSteps; step++) {
@@ -1189,11 +1233,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
             if (normVel < 0) {
               const restitution = 1.45;
-              const impulse = -(1 + restitution) * normVel;
+              const impulse = -(1 + restitution) * normVel * propsRef.current.puckSpeedMultiplier;
               s.puckVx += nx * impulse + s.p1Vx * 0.7;
               s.puckVz += nz * impulse + s.p1Vz * 0.7;
-              s.puckVx *= propsRef.current.puckSpeedMultiplier;
-              s.puckVz *= propsRef.current.puckSpeedMultiplier;
 
               // Ensure crisp energetic exit velocity so puck never dies
               const exitSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
@@ -1229,11 +1271,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
             if (normVel < 0) {
               const restitution = 1.45;
-              const impulse = -(1 + restitution) * normVel;
+              const impulse = -(1 + restitution) * normVel * propsRef.current.puckSpeedMultiplier;
               s.puckVx += nx * impulse + s.p2Vx * 0.7;
               s.puckVz += nz * impulse + s.p2Vz * 0.7;
-              s.puckVx *= propsRef.current.puckSpeedMultiplier;
-              s.puckVz *= propsRef.current.puckSpeedMultiplier;
 
               const exitSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
               if (exitSpd < 12) {
@@ -1248,93 +1288,38 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
             }
           }
 
-          // 4 Rounded Corner Physics (fillet radius = 2.0)
-          const cornerR = 2.0;
-          const minCornerX = -halfW + cornerR;
-          const maxCornerX = halfW - cornerR;
-          const minCornerZ = -halfL + cornerR;
-          const maxCornerZ = halfL - cornerR;
-
-          // Corner collision test helper
-          const checkCornerArc = (cx: number, cz: number, isLeft: boolean, isTop: boolean) => {
-            const inCornerX = isLeft ? s.puckX < cx : s.puckX > cx;
-            const inCornerZ = isTop ? s.puckZ < cz : s.puckZ > cz;
-            if (inCornerX && inCornerZ) {
-              const dx = s.puckX - cx;
-              const dz = s.puckZ - cz;
-              const dist = Math.sqrt(dx * dx + dz * dz);
-              const maxDist = cornerR - puckR;
-              if (dist >= maxDist && dist > 0.0001) {
-                // Circle normal pointing inward towards rink
-                const nx = -dx / dist;
-                const nz = -dz / dist;
-                s.puckX = cx - (dx / dist) * (maxDist - 0.02);
-                s.puckZ = cz - (dz / dist) * (maxDist - 0.02);
-
-                const dot = s.puckVx * nx + s.puckVz * nz;
-                if (dot < 0) {
-                  s.puckVx -= (1 + 0.985) * dot * nx;
-                  s.puckVz -= (1 + 0.985) * dot * nz;
-                  sound.playWallHit(Math.max(0.3, Math.abs(dot) / 10));
-                  triggerSparks(s.puckX, 0.2, s.puckZ, isTop ? 0xff0066 : 0x00e5ff, 8);
-                }
-              }
-              // Anti-stuck safeguard: ensure puck never wedges in a corner
-              const curSpeed = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
-              if (curSpeed < 6) {
-                s.puckVx = isLeft ? 12 : -12;
-                s.puckVz = isTop ? 12 : -12;
-              }
-              return true;
-            }
-            return false;
-          };
-
-          const hitTL = checkCornerArc(minCornerX, minCornerZ, true, true);
-          const hitTR = checkCornerArc(maxCornerX, minCornerZ, false, true);
-          const hitBL = checkCornerArc(minCornerX, maxCornerZ, true, false);
-          const hitBR = checkCornerArc(maxCornerX, maxCornerZ, false, false);
-
-          // Rounded goal posts keep edge shots from catching on the goal frame.
-          const postRadius = puckR + 0.12;
+          // Goal posts use a narrow horizontal collision band beside each opening.
+          const postBand = puckR + 0.12;
           for (const postX of [-goalHalfW, goalHalfW]) {
-            for (const postZ of [-halfL - 0.35, halfL + 0.35]) {
-              const dx = s.puckX - postX;
-              const dz = s.puckZ - postZ;
-              const distance = Math.sqrt(dx * dx + dz * dz);
-              if (distance >= postRadius || distance < 0.0001) continue;
-
-              const nx = dx / distance;
-              const nz = dz / distance;
-              s.puckX = postX + nx * postRadius;
-              s.puckZ = postZ + nz * postRadius;
-              const impactSpeed = s.puckVx * nx + s.puckVz * nz;
-              if (impactSpeed < 0) {
-                s.puckVx -= 1.9 * impactSpeed * nx;
-                s.puckVz -= 1.9 * impactSpeed * nz;
-              }
+            const dx = s.puckX - postX;
+            const nearEndRail = Math.abs(s.puckZ) >= halfL - postBand;
+            if (nearEndRail && Math.abs(dx) <= postBand && dx * s.puckVx < 0) {
+              const impactSide = dx < 0 ? -1 : 1;
+              s.puckX = postX + impactSide * postBand;
+              s.puckVx = impactSide * Math.abs(s.puckVx) * 0.94;
+              sound.playWallHit(Math.max(0.3, Math.abs(s.puckVx) / 10));
+              triggerSparks(s.puckX, 0.2, s.puckZ, 0xff0066, 6);
             }
           }
 
           // Straight Rail Collisions
           // Left Wall
-          if (!hitTL && !hitBL && s.puckX - puckR < -halfW) {
+          if (s.puckX - puckR < -halfW) {
             s.puckX = -halfW + puckR;
-            s.puckVx = Math.abs(s.puckVx) * 0.985;
+            s.puckVx = Math.abs(s.puckVx) * 0.94;
             sound.playWallHit(Math.abs(s.puckVx) / 10);
             triggerSparks(s.puckX, 0.2, s.puckZ, 0x00e5ff, 6);
           }
           // Right Wall
-          if (!hitTR && !hitBR && s.puckX + puckR > halfW) {
+          if (s.puckX + puckR > halfW) {
             s.puckX = halfW - puckR;
-            s.puckVx = -Math.abs(s.puckVx) * 0.985;
+            s.puckVx = -Math.abs(s.puckVx) * 0.94;
             sound.playWallHit(Math.abs(s.puckVx) / 10);
             triggerSparks(s.puckX, 0.2, s.puckZ, 0x00e5ff, 6);
           }
 
           // Top Wall & Goal Alcove Pocket (Opponent Side / P2 Goal)
-          if (!hitTL && !hitTR) {
-            if (Math.abs(s.puckX) <= goalOpeningHalfWidth) {
+          if (Math.abs(s.puckX) <= goalOpeningHalfWidth) {
               if (s.puckZ + puckR <= -halfL && !s.isScoring) {
                 const ownGoal =
                   (currentMode === 'online_host' || currentMode === 'bot') &&
@@ -1350,19 +1335,17 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                 handleGoal('player');
                 break;
               }
-            } else {
+          } else {
               if (s.puckZ - puckR <= -halfL) {
                 s.puckZ = -halfL + puckR;
-                if (s.puckVz < 0) s.puckVz = Math.max(1.5, Math.abs(s.puckVz) * 0.94);
+                if (s.puckVz < 0) s.puckVz = Math.abs(s.puckVz) * 0.94;
                 sound.playWallHit(Math.abs(s.puckVz) / 10);
                 triggerSparks(s.puckX, 0.2, s.puckZ, 0xff0066, 6);
               }
-            }
           }
 
           // Bottom Wall & Goal Alcove Pocket (Player 1 Side / P1 Goal)
-          if (!hitBL && !hitBR) {
-            if (Math.abs(s.puckX) <= goalOpeningHalfWidth) {
+          if (Math.abs(s.puckX) <= goalOpeningHalfWidth) {
               if (s.puckZ - puckR >= halfL && !s.isScoring) {
                 const ownGoal =
                   (currentMode === 'online_host' || currentMode === 'bot') &&
@@ -1373,15 +1356,14 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                   s.puckVz = -Math.max(2, Math.abs(s.puckVz) * (ownGoal ? 1.1 : 1.2));
                   sound.playWallHit(1.0);
                   triggerSparks(s.puckX, 0.2, s.puckZ, 0x00e5ff, 10);
-                } else {
+          } else {
                   handleGoal('opponent');
                   break;
-                }
               }
             } else {
               if (s.puckZ + puckR >= halfL) {
                 s.puckZ = halfL - puckR;
-                if (s.puckVz > 0) s.puckVz = -Math.max(1.5, Math.abs(s.puckVz) * 0.94);
+                if (s.puckVz > 0) s.puckVz = -Math.abs(s.puckVz) * 0.94;
                 sound.playWallHit(Math.abs(s.puckVz) / 10);
                 triggerSparks(s.puckX, 0.2, s.puckZ, 0x00e5ff, 6);
               }
@@ -1398,7 +1380,6 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           }
 
           // High-velocity arcade speed cap
-          const maxSpd = 50 * propsRef.current.puckSpeedMultiplier;
           const currSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
           if (currSpd > maxSpd) {
             s.puckVx = (s.puckVx / currSpd) * maxSpd;
@@ -1441,7 +1422,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           const normalVelocity = relativeVx * nx + relativeVz * nz;
 
           if (normalVelocity < 0) {
-            const impulse = -(1 + 1.45) * normalVelocity;
+            const impulse = -(1 + 1.45) * normalVelocity * propsRef.current.puckSpeedMultiplier;
             s.puckVx += nx * impulse + s.p1Vx * 0.7;
             s.puckVz += nz * impulse + s.p1Vz * 0.7;
 
