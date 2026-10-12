@@ -1643,19 +1643,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
         } else if (camMode === 'fpv') {
           s.camera.up.set(0, 1, 0);
-          // True First-Person View behind Player 1 mallet looking forward
-          const targetCamX = s.p1X * 0.45;
-          const targetCamY = 3.6;
-          const targetCamZ = s.p1Z + 4.8;
-
-          s.camera.position.x += (targetCamX - s.camera.position.x) * 0.15;
-          s.camera.position.y += (targetCamY - s.camera.position.y) * 0.15;
-          s.camera.position.z += (targetCamZ - s.camera.position.z) * 0.15;
-
-          // Look at center-forward table area with dynamic slight puck tracking
-          const lookAtX = s.puckX * 0.35;
-          const lookAtZ = s.p1Z - 9;
-          s.camera.lookAt(lookAtX, 0.6, lookAtZ);
+          s.camera.position.set(s.p1X * 0.35, 4.2, s.p1Z + 3.8);
+          s.camera.lookAt(s.puckX * 0.25, 0.3, Math.min(4.5, s.p1Z - 3));
 
         } else if (camMode === 'action') {
           s.camera.up.set(0, 1, 0);
