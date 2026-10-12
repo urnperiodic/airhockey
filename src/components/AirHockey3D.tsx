@@ -101,6 +101,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   const [isServing, setIsServing] = useState(true);
   const [isPuckInHitRange, setIsPuckInHitRange] = useState(false);
   const [selectedServeX, setSelectedServeX] = useState(0);
+  const [resetRequestStatus, setResetRequestStatus] = useState('');
   const [winner, setWinner] = useState<'player' | 'opponent' | null>(null);
 
   // References for render loop & physics mutable states to run at solid 60+ FPS without re-renders
@@ -118,6 +119,13 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     puckZ: 0,
     puckVx: 0,
     puckVz: 0,
+    puckRailRecoveryTime: 0,
+    puckResetVersion: 0,
+    lastSeenPuckResetVersion: null as number | null,
+    hostResetRequested: false,
+    guestResetRequested: false,
+    player1ResetRequested: false,
+    player2ResetRequested: false,
     puckTargetY: 0.16,
 
     // Player 1 mallet (Z > 0 side)
@@ -237,6 +245,24 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     propsRef.current.onAnnouncementChange?.(message);
   }, []);
 
+  const completePuckReset = useCallback(() => {
+    const s = stateRef.current;
+    s.puckX = 0;
+    s.puckZ = 0;
+    s.puckVx = 0;
+    s.puckVz = 0;
+    s.puckRailRecoveryTime = 0;
+    s.puckResetVersion += 1;
+    s.hostResetRequested = false;
+    s.guestResetRequested = false;
+    s.player1ResetRequested = false;
+    s.player2ResetRequested = false;
+    setResetRequestStatus('');
+    sound.playWhistle();
+    announce('PUCK RESET TO CENTER');
+    setTimeout(() => announce(''), 1200);
+  }, [announce]);
+
   // Read initial scores from the room; live match state comes through WebRTC.
   useEffect(() => {
     if (!onlineRoom || (mode !== 'online_guest' && mode !== 'online_host')) return;
@@ -312,6 +338,18 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       ) {
         s.requestedServeX = Math.max(-3.5, Math.min(3.5, packet.x));
       } else if (
+        propsRef.current.mode === 'online_host' &&
+        packet.type === 'puck-reset-request' &&
+        !s.gameOver &&
+        !s.servePending
+      ) {
+        s.guestResetRequested = true;
+        if (s.hostResetRequested) {
+          completePuckReset();
+        } else {
+          setResetRequestStatus('Opponent requested a puck reset');
+        }
+      } else if (
         propsRef.current.mode === 'online_guest' &&
         packet.type === 'host-state' &&
         ['puckX', 'puckZ', 'puckVx', 'puckVz', 'hostPaddleX', 'hostPaddleZ', 'hostScore', 'guestScore']
@@ -328,6 +366,25 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.p2Score = packet.hostScore as number;
         s.servePending = packet.servePending as boolean;
         s.serveSide = packet.serveSide as 'p1' | 'p2';
+        if (typeof packet.puckResetVersion === 'number') {
+          if (
+            s.lastSeenPuckResetVersion !== null &&
+            packet.puckResetVersion !== s.lastSeenPuckResetVersion
+          ) {
+            s.guestResetRequested = false;
+          }
+          s.lastSeenPuckResetVersion = packet.puckResetVersion;
+        }
+        if (typeof packet.resetVotes === 'number') {
+          const resetVotes = Math.max(0, Math.min(2, packet.resetVotes));
+          setResetRequestStatus(
+            resetVotes === 0 && !s.guestResetRequested
+              ? ''
+              : s.guestResetRequested
+                ? 'Waiting for the opponent to agree'
+                : 'Opponent requested a puck reset'
+          );
+        }
         if (
           typeof packet.puckSpeedMultiplier === 'number' &&
           typeof packet.puckFriction === 'number'
@@ -356,7 +413,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     return () => {
       gameDataChannel.onmessage = null;
     };
-  }, [gameDataChannel, announce]);
+  }, [gameDataChannel, announce, completePuckReset]);
 
   // Particle explosion helper with strict collision particle limit and pooling
   const triggerSparks = useCallback((x: number, y: number, z: number, colorHex: number, count = 8) => {
@@ -400,10 +457,16 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   const servePuck = useCallback((server: 'p1' | 'p2', x = 0) => {
     const s = stateRef.current;
     const serveX = Math.max(-3.5, Math.min(3.5, x));
+    s.hostResetRequested = false;
+    s.guestResetRequested = false;
+    s.player1ResetRequested = false;
+    s.player2ResetRequested = false;
+    setResetRequestStatus('');
     s.puckX = serveX;
     s.puckZ = server === 'p1' ? 4 : -4;
     s.puckVx = (-serveX * 0.55 + (Math.random() - 0.5) * 1.2) * propsRef.current.puckSpeedMultiplier;
     s.puckVz = (server === 'p1' ? -7 : 7) * propsRef.current.puckSpeedMultiplier;
+    s.puckRailRecoveryTime = 0;
     s.servePending = false;
     s.serveDeadline = 0;
     s.serveSide = server;
@@ -438,6 +501,12 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckZ = 4;
     s.puckVx = 0;
     s.puckVz = 0;
+    s.puckRailRecoveryTime = 0;
+    s.hostResetRequested = false;
+    s.guestResetRequested = false;
+    s.player1ResetRequested = false;
+    s.player2ResetRequested = false;
+    setResetRequestStatus('');
     s.servePending = true;
     s.serveDeadline = performance.now() + 2000;
     s.selectedServeX = 0;
@@ -1385,6 +1454,28 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
             s.puckVx = (s.puckVx / currSpd) * maxSpd;
             s.puckVz = (s.puckVz / currSpd) * maxSpd;
           }
+
+          const nearSideRail = halfW - Math.abs(s.puckX) <= puckR + 0.3;
+          const nearEndRail = Math.abs(s.puckX) > goalOpeningHalfWidth &&
+            halfL - Math.abs(s.puckZ) <= puckR + 0.3;
+          const nearCorner = nearSideRail && nearEndRail;
+          if ((nearSideRail || nearEndRail) && currSpd < 0.75) {
+            s.puckRailRecoveryTime += subDt;
+            if (s.puckRailRecoveryTime >= 0.75) {
+              if (nearCorner) {
+                completePuckReset();
+                break;
+              }
+              const inwardX = nearSideRail ? -Math.sign(s.puckX) : 0;
+              const inwardZ = nearEndRail ? -Math.sign(s.puckZ) : 0;
+              const inwardLength = Math.hypot(inwardX, inwardZ);
+              s.puckVx += (inwardX / inwardLength) * 2.5;
+              s.puckVz += (inwardZ / inwardLength) * 2.5;
+              s.puckRailRecoveryTime = 0;
+            }
+          } else {
+            s.puckRailRecoveryTime = 0;
+          }
         }
       }
 
@@ -1476,6 +1567,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.puckZ = nextServer === 'p1' ? 4 : -4;
         s.puckVx = 0;
         s.puckVz = 0;
+        s.puckRailRecoveryTime = 0;
         s.botGracePeriodUntil = performance.now() + 1800;
         s.botServeReadyAt = currentMode === 'bot' && nextServer === 'p2'
           ? performance.now() + 2000
@@ -1595,7 +1687,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           servePending: s.servePending,
           serveSide: s.serveSide,
           puckSpeedMultiplier: propsRef.current.puckSpeedMultiplier,
-          puckFriction: propsRef.current.puckFriction
+          puckFriction: propsRef.current.puckFriction,
+          resetVotes: Number(s.hostResetRequested) + Number(s.guestResetRequested),
+          puckResetVersion: s.puckResetVersion
         });
       } else if (currentMode === 'online_guest' && time - s.lastSyncTime > 16) {
         s.lastSyncTime = time;
@@ -1619,7 +1713,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     return () => {
       cancelAnimationFrame(s.animId);
     };
-  }, [triggerSparks, servePuck, announce]);
+  }, [triggerSparks, servePuck, announce, completePuckReset]);
 
   const localServeSide = mode === 'online_guest' ? 'p2' : mode === 'online_host' ? 'p1' : stateRef.current.serveSide;
   const canChooseServe = mode === 'local' ||
@@ -1645,6 +1739,46 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     stateRef.current.selectedServeX = serveX;
     setSelectedServeX(serveX);
   };
+  const requestPuckReset = () => {
+    const s = stateRef.current;
+    if (s.gameOver || s.servePending) return;
+
+    if (mode === 'online_guest') {
+      if (s.guestResetRequested) return;
+    if (!gameDataChannel || gameDataChannel.readyState !== 'open') {
+      setResetRequestStatus('Opponent connection unavailable');
+      return;
+    }
+    s.guestResetRequested = true;
+      setResetRequestStatus('Waiting for the opponent to agree');
+      sendPeerPacket(gameDataChannel, { type: 'puck-reset-request' });
+    } else if (mode === 'online_host') {
+      if (s.hostResetRequested) return;
+      s.hostResetRequested = true;
+      if (s.guestResetRequested) {
+        completePuckReset();
+      } else {
+        setResetRequestStatus('Waiting for the opponent to agree');
+      }
+    } else if (mode === 'bot') {
+      completePuckReset();
+    }
+  };
+  const requestLocalPuckReset = (player: 'player1' | 'player2') => {
+    const s = stateRef.current;
+    if (s.gameOver || s.servePending) return;
+
+    if (player === 'player1') s.player1ResetRequested = true;
+    else s.player2ResetRequested = true;
+
+    if (s.player1ResetRequested && s.player2ResetRequested) {
+      completePuckReset();
+    } else {
+      setResetRequestStatus(player === 'player1'
+        ? 'Waiting for Player 2 to agree'
+        : 'Waiting for Player 1 to agree');
+    }
+  };
   useEffect(() => {
     stateRef.current.p1MalletRadius = mode === 'bot' && helpDisabled
       ? stateRef.current.p2MalletRadius
@@ -1657,6 +1791,53 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       className="relative w-full h-full select-none overflow-hidden bg-slate-950 cursor-crosshair"
     >
       <canvas ref={canvasRef} className="block w-full h-full" />
+
+      {!winner && !isServing && !stateRef.current.servePending && (
+        <div className="absolute top-3 left-3 z-20 max-w-[calc(100%-1.5rem)] rounded-md border border-slate-700 bg-slate-900/95 p-2 shadow-lg">
+          {mode === 'local' ? (
+            <>
+              <p className="mb-1.5 text-center text-xs text-slate-300">
+                Both players must agree
+              </p>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => requestLocalPuckReset('player1')}
+                  disabled={stateRef.current.player1ResetRequested}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {stateRef.current.player1ResetRequested ? 'Player 1 agreed' : 'Player 1 reset'}
+                </button>
+                <button
+                  onClick={() => requestLocalPuckReset('player2')}
+                  disabled={stateRef.current.player2ResetRequested}
+                  className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {stateRef.current.player2ResetRequested ? 'Player 2 agreed' : 'Player 2 reset'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={requestPuckReset}
+                disabled={
+                  (mode === 'online_host' && stateRef.current.hostResetRequested) ||
+                  (mode === 'online_guest' && stateRef.current.guestResetRequested)
+                }
+                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+              >
+                {mode === 'bot' ? 'Reset puck to center' : 'Agree to reset puck'}
+              </button>
+              {resetRequestStatus && (
+                <p className="mt-1 text-center text-xs text-slate-400">{resetRequestStatus}</p>
+              )}
+            </>
+          )}
+          {mode === 'local' && resetRequestStatus && (
+            <p className="mt-1 text-center text-xs text-slate-400">{resetRequestStatus}</p>
+          )}
+        </div>
+      )}
 
       {isPuckInHitRange && (
         <div className="absolute top-3 right-3 z-20 rounded-md border border-slate-600 bg-slate-900/95 px-3 py-1.5 text-xs font-medium text-slate-100">
