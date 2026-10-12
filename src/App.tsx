@@ -10,7 +10,6 @@ import {
 } from './components/AirHockey3D';
 import { FirebaseTester } from './components/FirebaseTester';
 import { MultiplayerModal } from './components/MultiplayerModal';
-import { GitHubDeployModal } from './components/GitHubDeployModal';
 import { sound } from './services/sound';
 import {
   auth,
@@ -48,8 +47,7 @@ import {
   Menu,
   X,
   Sliders,
-  Users,
-  Github
+  Users
 } from 'lucide-react';
 
 export default function App() {
@@ -58,6 +56,7 @@ export default function App() {
   const [botDifficulty, setBotDifficulty] = useState<BotDifficulty>('pro');
   const [cameraView, setCameraView] = useState<CameraView>('fpv');
   const [winningScore, setWinningScore] = useState(10);
+  const [allowOwnGoals, setAllowOwnGoals] = useState(true);
   const [playerScore, setPlayerScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
   const [mouseSensitivity, setMouseSensitivity] = useState<number>(2.5);
@@ -77,12 +76,35 @@ export default function App() {
     }
   };
 
+  const cycleCameraView = () => {
+    const views: CameraView[] = ['fpv', 'top', 'action', 'classic'];
+    setCameraView(current => views[(views.indexOf(current) + 1) % views.length]);
+  };
+
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    const views: CameraView[] = ['fpv', 'top', 'action', 'classic'];
+    const handlePerspectiveShortcut = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        event.key.toLowerCase() !== 'v' ||
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) return;
+
+      setCameraView(current => views[(views.indexOf(current) + 1) % views.length]);
+    };
+
+    window.addEventListener('keydown', handlePerspectiveShortcut);
+    return () => window.removeEventListener('keydown', handlePerspectiveShortcut);
   }, []);
 
   // Online Room State
@@ -93,7 +115,6 @@ export default function App() {
   // Modals
   const [isTesterOpen, setIsTesterOpen] = useState(false);
   const [isMultiplayerOpen, setIsMultiplayerOpen] = useState(false);
-  const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
 
   // Firebase status indicator
   const [firebaseStatus, setFirebaseStatus] = useState<{
@@ -237,6 +258,23 @@ export default function App() {
           </div>
         </div>
 
+        {mode === 'online_host' && (
+          <div className="flex items-center justify-between">
+            <span className="text-slate-300 font-medium">Own-goal scoring:</span>
+            <button
+              onClick={() => setAllowOwnGoals(value => !value)}
+              className={`px-2.5 py-1 rounded-lg border font-bold ${
+                allowOwnGoals
+                  ? 'bg-rose-500/10 border-rose-500/40 text-rose-300'
+                  : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+              }`}
+              aria-pressed={allowOwnGoals}
+            >
+              {allowOwnGoals ? 'Allowed' : 'Prevented'}
+            </button>
+          </div>
+        )}
+
         {/* Center/Right controls: Dropdown toggle, Fullscreen, Sound */}
         <div className="flex items-center gap-2 relative">
           
@@ -352,6 +390,7 @@ export default function App() {
                 {/* Camera View */}
                 <div className="flex flex-col gap-1">
                   <span className="text-slate-300 font-medium">Camera Perspective:</span>
+                  <span className="text-[10px] text-slate-500">Press V to switch views</span>
                   <div className="grid grid-cols-4 gap-1">
                     {(['top', 'fpv', 'action', 'classic'] as CameraView[]).map(view => (
                       <button
@@ -395,19 +434,20 @@ export default function App() {
                   </div>
                 )}
 
-                {/* GitHub Deploy Button */}
-                <div className="pt-2 border-t border-slate-800">
-                  <button
-                    onClick={() => { setIsGitHubModalOpen(true); setIsMenuOpen(false); }}
-                    className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-950 hover:bg-slate-800 border border-cyan-500/40 text-cyan-300 font-bold transition text-xs shadow"
-                  >
-                    <Github className="w-4 h-4 text-cyan-400" />
-                    <span>Deploy to GitHub</span>
-                  </button>
-                </div>
               </div>
             )}
           </div>
+
+          {/* Quick perspective switch */}
+          <button
+            onClick={cycleCameraView}
+            className="p-2 rounded-xl bg-slate-950 hover:bg-slate-900 text-cyan-300 border border-cyan-500/30 transition flex items-center gap-1.5"
+            title={`Switch perspective (V). Current: ${cameraView}`}
+            aria-label={`Switch camera perspective, current view ${cameraView}`}
+          >
+            <Camera className="w-4 h-4" />
+            <span className="hidden sm:inline text-[10px] uppercase">{cameraView}</span>
+          </button>
 
           {/* Fullscreen Button */}
           <button
@@ -456,6 +496,7 @@ export default function App() {
           mode={mode}
           botDifficulty={botDifficulty}
           winningScore={winningScore}
+          allowOwnGoals={allowOwnGoals}
           cameraView={cameraView}
           mouseSensitivityMultiplier={mouseSensitivity}
           roomCode={onlineRoom?.roomCode}
@@ -486,11 +527,6 @@ export default function App() {
         isOpen={isMultiplayerOpen}
         onClose={() => setIsMultiplayerOpen(false)}
         onStartOnlineMatch={handleStartOnlineMatch}
-      />
-
-      <GitHubDeployModal
-        isOpen={isGitHubModalOpen}
-        onClose={() => setIsGitHubModalOpen(false)}
       />
 
     </div>

@@ -129,6 +129,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
       title: `Air Hockey Match #${code}`,
       hostId,
       hostName,
+      hostColor: Math.random() < 0.5 ? 'red' : 'blue',
       status: 'waiting',
       hostScore: 0,
       guestScore: 0,

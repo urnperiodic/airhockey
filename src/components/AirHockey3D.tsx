@@ -33,6 +33,7 @@ interface AirHockey3DProps {
   mode: GameMode;
   botDifficulty: BotDifficulty;
   winningScore: number;
+  allowOwnGoals?: boolean;
   roomCode?: string;
   onlineRoom?: RoomRecord | null;
   gameDataChannel?: RTCDataChannel | null;
@@ -47,6 +48,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   mode,
   botDifficulty,
   winningScore = 10,
+  allowOwnGoals = true,
   roomCode,
   onlineRoom,
   gameDataChannel,
@@ -64,6 +66,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   const [opponentScore, setOpponentScore] = useState(0);
   const [announcement, setAnnouncement] = useState<string>('GET READY');
   const [isServing, setIsServing] = useState(true);
+  const [selectedServeX, setSelectedServeX] = useState(0);
   const [winner, setWinner] = useState<'player' | 'opponent' | null>(null);
 
   // References for render loop & physics mutable states to run at solid 60+ FPS without re-renders
@@ -111,6 +114,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     gameOver: false,
     isScoring: false,
     servingWait: 1.2,
+    servePending: true,
+    serveSide: 'p1' as 'p1' | 'p2',
+    requestedServeX: null as number | null,
+    botServeReadyAt: 0,
     botGracePeriodUntil: 0,
     lastTouchedBy: null as 'player' | 'opponent' | null,
     isGuestPredictingPaddleHit: false,
@@ -151,6 +158,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     mode,
     botDifficulty,
     winningScore,
+    allowOwnGoals,
     cameraView,
     mouseSensitivityMultiplier,
     onlineRoom,
@@ -165,6 +173,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       mode,
       botDifficulty,
       winningScore,
+      allowOwnGoals,
       cameraView,
       mouseSensitivityMultiplier,
       onlineRoom,
@@ -173,7 +182,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       onScoreUpdate,
       onGameOver
     };
-  }, [mode, botDifficulty, winningScore, cameraView, mouseSensitivityMultiplier, onlineRoom, gameDataChannel, onGoalScored, onScoreUpdate, onGameOver]);
+  }, [mode, botDifficulty, winningScore, allowOwnGoals, cameraView, mouseSensitivityMultiplier, onlineRoom, gameDataChannel, onGoalScored, onScoreUpdate, onGameOver]);
 
   // Read initial scores from the room; live match state comes through WebRTC.
   useEffect(() => {
@@ -186,6 +195,33 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     setPlayerScore(player);
     setOpponentScore(opponent);
   }, [onlineRoom, mode]);
+
+  useEffect(() => {
+    if (mode !== 'online_guest' && mode !== 'online_host') return;
+
+    const hostColor = onlineRoom?.hostColor ?? 'blue';
+    const localColor = mode === 'online_host' ? hostColor : hostColor === 'blue' ? 'red' : 'blue';
+    const opponentColor = localColor === 'blue' ? 'red' : 'blue';
+    const colors = {
+      blue: { main: 0x168bff, glow: 0x38bdf8 },
+      red: { main: 0xef3340, glow: 0xff6670 }
+    };
+    const applySideColor = (group: THREE.Group | null, color: 'red' | 'blue') => {
+      if (!group) return;
+      group.traverse(object => {
+        if (!(object instanceof THREE.Mesh)) return;
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        for (const material of materials) {
+          const role = material.userData.colorRole;
+          if (role === 'main') material.color.setHex(colors[color].main);
+          if (role === 'glow') material.color.setHex(colors[color].glow);
+        }
+      });
+    };
+
+    applySideColor(stateRef.current.p1Mesh, localColor);
+    applySideColor(stateRef.current.p2Mesh, opponentColor);
+  }, [mode, onlineRoom?.hostColor]);
 
   useEffect(() => {
     if (!gameDataChannel) return;
@@ -214,6 +250,12 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.p2Vz = Math.max(-30, Math.min(30, -packet.vz));
         s.lastRemotePaddleUpdateTime = performance.now();
       } else if (
+        propsRef.current.mode === 'online_host' &&
+        packet.type === 'serve-request' &&
+        typeof packet.x === 'number'
+      ) {
+        s.requestedServeX = Math.max(-3.5, Math.min(3.5, packet.x));
+      } else if (
         propsRef.current.mode === 'online_guest' &&
         packet.type === 'host-state' &&
         ['puckX', 'puckZ', 'puckVx', 'puckVz', 'hostPaddleX', 'hostPaddleZ', 'hostScore', 'guestScore']
@@ -228,6 +270,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.p2Z = -(packet.hostPaddleZ as number);
         s.p1Score = packet.guestScore as number;
         s.p2Score = packet.hostScore as number;
+        s.servePending = packet.servePending as boolean;
+        s.serveSide = packet.serveSide as 'p1' | 'p2';
+        setIsServing(s.servePending);
         setPlayerScore(s.p1Score);
         setOpponentScore(s.p2Score);
         if (s.gameOver !== packet.gameOver) {
@@ -282,21 +327,27 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   }, []);
 
   // Serve puck after goal
-  const servePuck = useCallback((towards: 'p1' | 'p2') => {
+  const servePuck = useCallback((server: 'p1' | 'p2', x = 0) => {
     const s = stateRef.current;
-    s.puckX = 0;
-    s.puckZ = towards === 'p1' ? 4 : -4;
-    s.puckVx = (Math.random() - 0.5) * 2;
-    s.puckVz = towards === 'p1' ? 1.5 : -1.5;
-    s.servingWait = 1.0;
+    const serveX = Math.max(-3.5, Math.min(3.5, x));
+    s.puckX = serveX;
+    s.puckZ = server === 'p1' ? 4 : -4;
+    s.puckVx = -serveX * 0.55 + (Math.random() - 0.5) * 1.2;
+    s.puckVz = server === 'p1' ? -7 : 7;
+    s.servePending = false;
+    s.serveSide = server;
+    s.requestedServeX = null;
+    s.isScoring = false;
+    s.servingWait = 0;
+    s.botServeReadyAt = 0;
     setIsServing(true);
-    setAnnouncement(towards === 'p1' ? 'YOUR SERVE' : 'OPPONENT SERVE');
+    setAnnouncement('SERVE!');
     sound.playWhistle();
 
     setTimeout(() => {
       setIsServing(false);
       setAnnouncement('');
-    }, 1200);
+    }, 450);
   }, []);
 
   // Reset complete match
@@ -313,9 +364,12 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.p2Z = -8.5;
     s.targetP2Z = -8.5;
     s.puckX = 0;
-    s.puckZ = 0; // Starts in middle!
+    s.puckZ = 4;
     s.puckVx = 0;
     s.puckVz = 0;
+    s.servePending = true;
+    s.serveSide = 'p1';
+    s.requestedServeX = null;
     s.botGracePeriodUntil = performance.now() + 1500;
     setPlayerScore(0);
     setOpponentScore(0);
@@ -586,6 +640,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         roughness: 0.2,
         metalness: 0.6
       });
+      baseMat.userData.colorRole = 'main';
       const base = new THREE.Mesh(baseGeo, baseMat);
       base.position.y = 0.175;
       base.castShadow = true;
@@ -617,6 +672,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         roughness: 0.1,
         metalness: 0.4
       });
+      knobMat.userData.colorRole = 'main';
       const knob = new THREE.Mesh(knobGeo, knobMat);
       knob.position.y = 1.1;
       knob.castShadow = true;
@@ -625,6 +681,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       // Neon Accent Ring
       const ringGeo = new THREE.TorusGeometry(radius * 0.7, 0.05, 12, 32);
       const ringMat = new THREE.MeshBasicMaterial({ color: glowColor });
+      ringMat.userData.colorRole = 'glow';
       const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.rotation.x = Math.PI / 2;
       ring.position.y = 0.36;
@@ -688,11 +745,12 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckVx = 0;
     s.puckVz = 0;
     s.isScoring = false;
-    setAnnouncement('FACEOFF');
-    sound.playWhistle();
-    setTimeout(() => {
-      setAnnouncement('');
-    }, 1000);
+    s.servePending = true;
+    s.serveSide = 'p1';
+    s.requestedServeX = null;
+    setIsServing(true);
+    setSelectedServeX(0);
+    setAnnouncement('CHOOSE YOUR SERVE');
 
     return () => {
       window.removeEventListener('resize', handleResize);
@@ -795,6 +853,23 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       const currentDifficulty = propsRef.current.botDifficulty;
       if (
         currentMode === 'online_host' &&
+        s.servePending &&
+        s.serveSide === 'p2' &&
+        s.requestedServeX !== null
+      ) {
+        servePuck('p2', s.requestedServeX);
+      }
+      if (
+        currentMode === 'bot' &&
+        s.servePending &&
+        s.serveSide === 'p2' &&
+        s.botServeReadyAt > 0 &&
+        time >= s.botServeReadyAt
+      ) {
+        servePuck('p2', 0);
+      }
+      if (
+        currentMode === 'online_host' &&
         time - s.lastRemotePaddleUpdateTime > 150
       ) {
         s.p2Vx = 0;
@@ -804,6 +879,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       const halfL = s.tableLength / 2;
       const goalHalfW = s.goalWidth / 2;
       const puckR = s.puckRadius;
+      const goalOpeningHalfWidth = goalHalfW - puckR;
       const malletR1 = s.p1MalletRadius;
       const malletR2 = currentMode === 'online_host' || currentMode === 'online_guest'
         ? malletR1
@@ -948,14 +1024,15 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       // 3. Puck Physics Sub-stepping (Host authoritative or Single-player)
       const isSimulatingPhysics = currentMode !== 'online_guest';
 
-      if (isSimulatingPhysics && !s.gameOver) {
+      if (isSimulatingPhysics && !s.gameOver && !s.servePending) {
         const subSteps = 6;
         const subDt = dt / subSteps;
 
         for (let step = 0; step < subSteps; step++) {
           // Friction / Air cushion: slide smoothly with very low drag
-          s.puckVx *= 0.9992;
-          s.puckVz *= 0.9992;
+          const drag = Math.exp(-0.08 * subDt);
+          s.puckVx *= drag;
+          s.puckVz *= drag;
 
           // Integrate position
           s.puckX += s.puckVx * subDt;
@@ -1084,6 +1161,27 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           const hitBL = checkCornerArc(minCornerX, maxCornerZ, true, false);
           const hitBR = checkCornerArc(maxCornerX, maxCornerZ, false, false);
 
+          // Rounded goal posts keep edge shots from catching on the goal frame.
+          const postRadius = puckR + 0.12;
+          for (const postX of [-goalHalfW, goalHalfW]) {
+            for (const postZ of [-halfL - 0.35, halfL + 0.35]) {
+              const dx = s.puckX - postX;
+              const dz = s.puckZ - postZ;
+              const distance = Math.sqrt(dx * dx + dz * dz);
+              if (distance >= postRadius || distance < 0.0001) continue;
+
+              const nx = dx / distance;
+              const nz = dz / distance;
+              s.puckX = postX + nx * postRadius;
+              s.puckZ = postZ + nz * postRadius;
+              const impactSpeed = s.puckVx * nx + s.puckVz * nz;
+              if (impactSpeed < 0) {
+                s.puckVx -= 1.9 * impactSpeed * nx;
+                s.puckVz -= 1.9 * impactSpeed * nz;
+              }
+            }
+          }
+
           // Straight Rail Collisions
           // Left Wall
           if (!hitTL && !hitBL && s.puckX - puckR < -halfW) {
@@ -1102,15 +1200,26 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
           // Top Wall & Goal Alcove Pocket (Opponent Side / P2 Goal)
           if (!hitTL && !hitTR) {
-            if (Math.abs(s.puckX) <= goalHalfW) {
-              if (s.puckZ <= -halfL && !s.isScoring) {
+            if (Math.abs(s.puckX) <= goalOpeningHalfWidth) {
+              if (s.puckZ + puckR <= -halfL && !s.isScoring) {
+                const ownGoal =
+                  currentMode === 'online_host' &&
+                  !propsRef.current.allowOwnGoals &&
+                  s.lastTouchedBy === 'opponent';
+                if (ownGoal) {
+                  s.puckZ = -halfL + puckR;
+                  s.puckVz = Math.max(2, Math.abs(s.puckVz) * 1.1);
+                  sound.playWallHit(1);
+                  triggerSparks(s.puckX, 0.2, s.puckZ, 0xff0066, 10);
+                  continue;
+                }
                 handleGoal('player');
                 break;
               }
             } else {
-              if (s.puckZ <= -halfL) {
+              if (s.puckZ - puckR <= -halfL) {
                 s.puckZ = -halfL + puckR;
-                s.puckVz = Math.abs(s.puckVz) * 0.985;
+                if (s.puckVz < 0) s.puckVz = Math.max(1.5, Math.abs(s.puckVz) * 0.94);
                 sound.playWallHit(Math.abs(s.puckVz) / 10);
                 triggerSparks(s.puckX, 0.2, s.puckZ, 0xff0066, 6);
               }
@@ -1119,13 +1228,19 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
           // Bottom Wall & Goal Alcove Pocket (Player 1 Side / P1 Goal)
           if (!hitBL && !hitBR) {
-            if (Math.abs(s.puckX) <= goalHalfW) {
-              if (s.puckZ >= halfL && !s.isScoring) {
-                // Own-goal protection: make it much harder to own goal by bouncing out player-touched pucks unless hit hard
+            if (Math.abs(s.puckX) <= goalOpeningHalfWidth) {
+              if (s.puckZ - puckR >= halfL && !s.isScoring) {
+                const ownGoal =
+                  currentMode === 'online_host' &&
+                  !propsRef.current.allowOwnGoals &&
+                  s.lastTouchedBy === 'player';
                 const puckSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
-                if (s.lastTouchedBy === 'player' && puckSpd < 25) {
-                  s.puckZ = halfL - puckR - 0.25;
-                  s.puckVz = -Math.abs(s.puckVz) * 1.5 - 5;
+                if (
+                  ownGoal ||
+                  (currentMode !== 'online_host' && s.lastTouchedBy === 'player' && puckSpd < 25)
+                ) {
+                  s.puckZ = halfL - puckR;
+                  s.puckVz = -Math.max(2, Math.abs(s.puckVz) * (ownGoal ? 1.1 : 1.2));
                   sound.playWallHit(1.0);
                   triggerSparks(s.puckX, 0.2, s.puckZ, 0x00e5ff, 10);
                 } else {
@@ -1134,9 +1249,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                 }
               }
             } else {
-              if (s.puckZ >= halfL) {
+              if (s.puckZ + puckR >= halfL) {
                 s.puckZ = halfL - puckR;
-                s.puckVz = -Math.abs(s.puckVz) * 0.985;
+                if (s.puckVz > 0) s.puckVz = -Math.max(1.5, Math.abs(s.puckVz) * 0.94);
                 sound.playWallHit(Math.abs(s.puckVz) / 10);
                 triggerSparks(s.puckX, 0.2, s.puckZ, 0x00e5ff, 6);
               }
@@ -1145,7 +1260,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
           // Absolute bounds safety guard: ensure puck NEVER clips out of bounds
           s.puckX = Math.max(-halfW + puckR, Math.min(halfW - puckR, s.puckX));
-          if (Math.abs(s.puckX) > goalHalfW) {
+          if (Math.abs(s.puckX) > goalOpeningHalfWidth) {
             s.puckZ = Math.max(-halfL + puckR, Math.min(halfL - puckR, s.puckZ));
           } else {
             const maxGoalDepth = goalHalfW;
@@ -1163,7 +1278,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       }
 
       // Predict local guest mallet hits while the host's authoritative puck update is in flight.
-      if (currentMode === 'online_guest' && !s.gameOver) {
+      if (currentMode === 'online_guest' && !s.gameOver && !s.servePending) {
         const dx = s.puckX - s.p1X;
         const dz = s.puckZ - s.p1Z;
         const distance = Math.sqrt(dx * dx + dz * dz);
@@ -1226,27 +1341,26 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         propsRef.current.onGoalScored?.(scorer, { player: newP1, opponent: newP2 });
         propsRef.current.onScoreUpdate?.({ player: newP1, opponent: newP2 });
 
-        // Instantly relocate puck to the opponent's side with grace period!
-        if (scorer === 'player') {
-          // Player scored: puck instantly goes to opponent's side
-          s.puckX = 0;
-          s.puckZ = -6.5;
-          s.puckVx = 0;
-          s.puckVz = 0;
-          s.botGracePeriodUntil = performance.now() + 1800; // 1.8s grace period: Bot won't instantly smash puck!
-          setAnnouncement('GOAL! OPPONENT SERVE');
-        } else {
-          // Opponent scored: puck instantly goes to player's side
-          s.puckX = 0;
-          s.puckZ = 6.5;
-          s.puckVx = 0;
-          s.puckVz = 0;
-          s.botGracePeriodUntil = performance.now() + 1800; // Bot holds back!
-          setAnnouncement('GOAL! YOUR SERVE');
-        }
+        const nextServer = scorer === 'player' ? 'p2' : 'p1';
+        s.servePending = true;
+        s.serveSide = nextServer;
+        s.requestedServeX = null;
+        s.puckX = 0;
+        s.puckZ = nextServer === 'p1' ? 4 : -4;
+        s.puckVx = 0;
+        s.puckVz = 0;
+        s.botGracePeriodUntil = performance.now() + 1800;
+        s.botServeReadyAt = currentMode === 'bot' && nextServer === 'p2'
+          ? performance.now() + 1800
+          : 0;
+        setIsServing(true);
+        setSelectedServeX(0);
+        setAnnouncement(nextServer === 'p1' ? 'YOUR SERVE' : 'OPPONENT SERVE');
 
         if (newP1 >= propsRef.current.winningScore || newP2 >= propsRef.current.winningScore) {
           s.gameOver = true;
+          s.servePending = false;
+          setIsServing(false);
           const matchWinner = newP1 >= propsRef.current.winningScore ? 'player' : 'opponent';
           setWinner(matchWinner);
           setAnnouncement(matchWinner === 'player' ? 'VICTORY!' : 'GAME OVER');

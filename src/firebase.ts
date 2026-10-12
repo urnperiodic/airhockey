@@ -160,6 +160,7 @@ export interface RoomRecord {
   hostName: string;
   guestId?: string;
   guestName?: string;
+  hostColor?: 'red' | 'blue';
   status: 'waiting' | 'playing' | 'finished' | 'abandoned';
   hostScore: number;
   guestScore: number;
