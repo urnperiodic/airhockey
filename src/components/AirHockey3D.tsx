@@ -76,7 +76,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     // Table dimensions
     tableWidth: 14,
     tableLength: 26,
-    goalWidth: 3.2,
+    goalWidth: 4.4,
     puckRadius: 0.55,
     p1MalletRadius: 1.4, // Bigger player mallet
     p2MalletRadius: 0.8, // Smaller bot / opponent mallet
@@ -117,6 +117,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     isScoring: false,
     servingWait: 1.2,
     servePending: true,
+    serveDeadline: 0,
+    selectedServeX: 0,
     serveSide: 'p1' as 'p1' | 'p2',
     requestedServeX: null as number | null,
     botServeReadyAt: 0,
@@ -345,6 +347,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckVx = -serveX * 0.55 + (Math.random() - 0.5) * 1.2;
     s.puckVz = server === 'p1' ? -7 : 7;
     s.servePending = false;
+    s.serveDeadline = 0;
     s.serveSide = server;
     s.requestedServeX = null;
     s.isScoring = false;
@@ -378,6 +381,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckVx = 0;
     s.puckVz = 0;
     s.servePending = true;
+    s.serveDeadline = performance.now() + 3000;
+    s.selectedServeX = 0;
     s.serveSide = 'p1';
     s.requestedServeX = null;
     s.botGracePeriodUntil = performance.now() + 1500;
@@ -789,6 +794,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckVz = 0;
     s.isScoring = false;
     s.servePending = true;
+    s.serveDeadline = performance.now() + 3000;
+    s.selectedServeX = 0;
     s.serveSide = 'p1';
     s.requestedServeX = null;
     setIsServing(true);
@@ -910,6 +917,14 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         time >= s.botServeReadyAt
       ) {
         servePuck('p2', 0);
+      }
+      if (
+        currentMode !== 'online_guest' &&
+        s.servePending &&
+        s.serveDeadline > 0 &&
+        time >= s.serveDeadline
+      ) {
+        servePuck(s.serveSide, s.requestedServeX ?? s.selectedServeX);
       }
       if (
         currentMode === 'online_host' &&
@@ -1277,11 +1292,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                   currentMode === 'online_host' &&
                   !propsRef.current.allowOwnGoals &&
                   s.lastTouchedBy === 'player';
-                const puckSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
-                if (
-                  ownGoal ||
-                  (currentMode !== 'online_host' && s.lastTouchedBy === 'player' && puckSpd < 25)
-                ) {
+                if (ownGoal) {
                   s.puckZ = halfL - puckR;
                   s.puckVz = -Math.max(2, Math.abs(s.puckVz) * (ownGoal ? 1.1 : 1.2));
                   sound.playWallHit(1.0);
@@ -1386,6 +1397,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
         const nextServer = scorer === 'player' ? 'p2' : 'p1';
         s.servePending = true;
+        s.serveDeadline = performance.now() + 3000;
+        s.selectedServeX = 0;
         s.serveSide = nextServer;
         s.requestedServeX = null;
         s.puckX = 0;
@@ -1394,7 +1407,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.puckVz = 0;
         s.botGracePeriodUntil = performance.now() + 1800;
         s.botServeReadyAt = currentMode === 'bot' && nextServer === 'p2'
-          ? performance.now() + 1800
+          ? performance.now() + 3000
           : 0;
         setIsServing(true);
         setSelectedServeX(0);
@@ -1551,8 +1564,13 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   const pickRandomServe = () => {
     const spots = [-3.5, 0, 3.5];
     const randomServeX = spots[Math.floor(Math.random() * spots.length)];
+    stateRef.current.selectedServeX = randomServeX;
     setSelectedServeX(randomServeX);
     submitServe(randomServeX);
+  };
+  const chooseServe = (serveX: number) => {
+    stateRef.current.selectedServeX = serveX;
+    setSelectedServeX(serveX);
   };
   useEffect(() => {
     stateRef.current.p1MalletRadius = mode === 'bot' && helpDisabled
@@ -1595,7 +1613,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                   ].map(spot => (
                     <button
                       key={spot.label}
-                      onClick={() => setSelectedServeX(spot.x)}
+                      onClick={() => chooseServe(spot.x)}
                       className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold transition ${
                         selectedServeX === spot.x
                           ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
