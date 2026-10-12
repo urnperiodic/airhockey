@@ -19,18 +19,28 @@ export type GameMode = 'bot' | 'local' | 'online_host' | 'online_guest';
 export type BotDifficulty = 'rookie' | 'pro' | 'master' | 'cyber' | 'god';
 export type CameraView = 'fpv' | 'top' | 'action' | 'classic';
 
+function sendPeerPacket(channel: RTCDataChannel | null | undefined, packet: object) {
+  if (!channel || channel.readyState !== 'open' || channel.bufferedAmount > 65_536) return;
+
+  try {
+    channel.send(JSON.stringify(packet));
+  } catch (error) {
+    console.error('Failed to send peer game data:', error);
+  }
+}
+
 interface AirHockey3DProps {
   mode: GameMode;
   botDifficulty: BotDifficulty;
   winningScore: number;
   roomCode?: string;
   onlineRoom?: RoomRecord | null;
+  gameDataChannel?: RTCDataChannel | null;
   cameraView: CameraView;
   mouseSensitivityMultiplier?: number;
   onGoalScored?: (scorer: 'player' | 'opponent', scores: { player: number; opponent: number }) => void;
   onScoreUpdate?: (scores: { player: number; opponent: number }) => void;
   onGameOver?: (winner: 'player' | 'opponent', scores: { player: number; opponent: number }) => void;
-  onSyncRoom?: (room: Partial<RoomRecord>) => void;
 }
 
 export const AirHockey3D: React.FC<AirHockey3DProps> = ({
@@ -39,12 +49,12 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   winningScore = 10,
   roomCode,
   onlineRoom,
+  gameDataChannel,
   cameraView,
   mouseSensitivityMultiplier = 2.5,
   onGoalScored,
   onScoreUpdate,
-  onGameOver,
-  onSyncRoom
+  onGameOver
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -107,7 +117,6 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
     // Online sync throttle
     lastSyncTime: 0,
-    lastRemotePaddleTimestamp: 0,
     lastRemotePaddleUpdateTime: 0,
 
     // Key states for local 2-player mode
@@ -145,10 +154,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     cameraView,
     mouseSensitivityMultiplier,
     onlineRoom,
+    gameDataChannel,
     onGoalScored,
     onScoreUpdate,
-    onGameOver,
-    onSyncRoom
+    onGameOver
   });
 
   useEffect(() => {
@@ -159,62 +168,80 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       cameraView,
       mouseSensitivityMultiplier,
       onlineRoom,
+      gameDataChannel,
       onGoalScored,
       onScoreUpdate,
-      onGameOver,
-      onSyncRoom
+      onGameOver
     };
-  }, [mode, botDifficulty, winningScore, cameraView, mouseSensitivityMultiplier, onlineRoom, onGoalScored, onScoreUpdate, onGameOver, onSyncRoom]);
+  }, [mode, botDifficulty, winningScore, cameraView, mouseSensitivityMultiplier, onlineRoom, gameDataChannel, onGoalScored, onScoreUpdate, onGameOver]);
 
-  // Handle Online sync updates from props if guest
+  // Read initial scores from the room; live match state comes through WebRTC.
   useEffect(() => {
-    if (mode === 'online_guest' && onlineRoom) {
-      if (onlineRoom.puckX !== undefined && onlineRoom.puckY !== undefined) {
-        // Flip the host's depth axis so the puck stays aligned with the guest's near-side mallet.
-        stateRef.current.puckX = (onlineRoom.puckX - 0.5) * stateRef.current.tableWidth;
-        stateRef.current.puckZ = (0.5 - onlineRoom.puckY) * stateRef.current.tableLength;
-        stateRef.current.puckVx = onlineRoom.puckVx ?? 0;
-        stateRef.current.puckVz = -(onlineRoom.puckVy ?? 0);
-      }
-      if (onlineRoom.hostPaddleX !== undefined && onlineRoom.hostPaddleY !== undefined) {
-        // Host's near-side paddle is on the far side from the guest's view.
-        stateRef.current.p2X = (onlineRoom.hostPaddleX - 0.5) * stateRef.current.tableWidth;
-        stateRef.current.p2Z = (0.5 - onlineRoom.hostPaddleY) * stateRef.current.tableLength;
-      }
-      if (onlineRoom.hostScore !== undefined && onlineRoom.guestScore !== undefined) {
-        setPlayerScore(onlineRoom.guestScore);
-        setOpponentScore(onlineRoom.hostScore);
-        stateRef.current.p1Score = onlineRoom.guestScore;
-        stateRef.current.p2Score = onlineRoom.hostScore;
-      }
-    } else if (mode === 'online_host' && onlineRoom) {
-      if (onlineRoom.guestPaddleX !== undefined && onlineRoom.guestPaddleY !== undefined) {
-        // Guest's near-side paddle is on the far side from the host's view.
-        const s = stateRef.current;
-        const now = performance.now();
-        const nextX = (onlineRoom.guestPaddleX - 0.5) * s.tableWidth;
-        const nextZ = (onlineRoom.guestPaddleY - 0.5) * s.tableLength;
-        const remotePaddleTimestamp = onlineRoom.guestPaddleUpdatedAt;
-        if (
-          typeof remotePaddleTimestamp === 'number' &&
-          remotePaddleTimestamp !== s.lastRemotePaddleTimestamp
-        ) {
-          const guestVx = onlineRoom.guestPaddleVx ?? 0;
-          const guestVz = onlineRoom.guestPaddleVy ?? 0;
-          s.p2Vx = Math.max(-30, Math.min(30, guestVx));
-          s.p2Vz = Math.max(-30, Math.min(30, guestVz));
-          s.lastRemotePaddleTimestamp = remotePaddleTimestamp;
-          s.lastRemotePaddleUpdateTime = now;
-        } else if (s.lastRemotePaddleUpdateTime === 0) {
-          s.p2Vx = 0;
-          s.p2Vz = 0;
-        }
-
-        s.p2X = nextX;
-        s.p2Z = nextZ;
-      }
-    }
+    if (!onlineRoom || (mode !== 'online_guest' && mode !== 'online_host')) return;
+    const s = stateRef.current;
+    const player = mode === 'online_guest' ? onlineRoom.guestScore : onlineRoom.hostScore;
+    const opponent = mode === 'online_guest' ? onlineRoom.hostScore : onlineRoom.guestScore;
+    s.p1Score = player;
+    s.p2Score = opponent;
+    setPlayerScore(player);
+    setOpponentScore(opponent);
   }, [onlineRoom, mode]);
+
+  useEffect(() => {
+    if (!gameDataChannel) return;
+
+    gameDataChannel.onmessage = event => {
+      let packet: Record<string, unknown>;
+      try {
+        packet = JSON.parse(String(event.data)) as Record<string, unknown>;
+      } catch (error) {
+        console.error('Received invalid peer game data:', error);
+        return;
+      }
+
+      const s = stateRef.current;
+      if (
+        propsRef.current.mode === 'online_host' &&
+        packet.type === 'guest-input' &&
+        typeof packet.x === 'number' &&
+        typeof packet.z === 'number' &&
+        typeof packet.vx === 'number' &&
+        typeof packet.vz === 'number'
+      ) {
+        s.p2X = packet.x;
+        s.p2Z = -packet.z;
+        s.p2Vx = Math.max(-30, Math.min(30, packet.vx));
+        s.p2Vz = Math.max(-30, Math.min(30, -packet.vz));
+        s.lastRemotePaddleUpdateTime = performance.now();
+      } else if (
+        propsRef.current.mode === 'online_guest' &&
+        packet.type === 'host-state' &&
+        ['puckX', 'puckZ', 'puckVx', 'puckVz', 'hostPaddleX', 'hostPaddleZ', 'hostScore', 'guestScore']
+          .every(key => typeof packet[key] === 'number') &&
+        typeof packet.gameOver === 'boolean'
+      ) {
+        s.puckX = packet.puckX as number;
+        s.puckZ = -(packet.puckZ as number);
+        s.puckVx = packet.puckVx as number;
+        s.puckVz = -(packet.puckVz as number);
+        s.p2X = packet.hostPaddleX as number;
+        s.p2Z = -(packet.hostPaddleZ as number);
+        s.p1Score = packet.guestScore as number;
+        s.p2Score = packet.hostScore as number;
+        setPlayerScore(s.p1Score);
+        setOpponentScore(s.p2Score);
+        if (s.gameOver !== packet.gameOver) {
+          s.gameOver = packet.gameOver;
+          setWinner(packet.gameOver ? (s.p1Score >= propsRef.current.winningScore ? 'player' : 'opponent') : null);
+          setAnnouncement(packet.gameOver ? (s.p1Score >= propsRef.current.winningScore ? 'VICTORY!' : 'GAME OVER') : '');
+        }
+      }
+    };
+
+    return () => {
+      gameDataChannel.onmessage = null;
+    };
+  }, [gameDataChannel]);
 
   // Particle explosion helper with strict collision particle limit and pooling
   const triggerSparks = useCallback((x: number, y: number, z: number, colorHex: number, count = 8) => {
@@ -1309,32 +1336,30 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         }
       }
 
-      // 8. Online Sync publishing (Throttled ~30fps for smooth network play)
-      if (currentMode === 'online_host' && propsRef.current.onSyncRoom) {
-        if (time - s.lastSyncTime > 40) {
-          s.lastSyncTime = time;
-          propsRef.current.onSyncRoom({
-            puckX: (s.puckX / s.tableWidth) + 0.5,
-            puckY: (s.puckZ / s.tableLength) + 0.5,
-            puckVx: s.puckVx,
-            puckVy: s.puckVz,
-            hostPaddleX: (s.p1X / s.tableWidth) + 0.5,
-            hostPaddleY: (s.p1Z / s.tableLength) + 0.5,
-            hostScore: s.p1Score,
-            guestScore: s.p2Score
-          });
-        }
-      } else if (currentMode === 'online_guest' && propsRef.current.onSyncRoom) {
-        if (time - s.lastSyncTime > 40) {
-          s.lastSyncTime = time;
-          propsRef.current.onSyncRoom({
-            guestPaddleX: (s.p1X / s.tableWidth) + 0.5,
-            guestPaddleY: 0.5 - (s.p1Z / s.tableLength),
-            guestPaddleVx: s.p1Vx,
-            guestPaddleVy: -s.p1Vz,
-            guestPaddleUpdatedAt: Date.now()
-          });
-        }
+      // Exchange only the latest inputs and authoritative puck state over WebRTC.
+      if (currentMode === 'online_host' && time - s.lastSyncTime > 30) {
+        s.lastSyncTime = time;
+        sendPeerPacket(propsRef.current.gameDataChannel, {
+          type: 'host-state',
+          puckX: s.puckX,
+          puckZ: s.puckZ,
+          puckVx: s.puckVx,
+          puckVz: s.puckVz,
+          hostPaddleX: s.p1X,
+          hostPaddleZ: s.p1Z,
+          hostScore: s.p1Score,
+          guestScore: s.p2Score,
+          gameOver: s.gameOver
+        });
+      } else if (currentMode === 'online_guest' && time - s.lastSyncTime > 16) {
+        s.lastSyncTime = time;
+        sendPeerPacket(propsRef.current.gameDataChannel, {
+          type: 'guest-input',
+          x: s.p1X,
+          z: s.p1Z,
+          vx: s.p1Vx,
+          vz: s.p1Vz
+        });
       }
 
       // Render Three.js scene

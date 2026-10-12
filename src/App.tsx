@@ -1,7 +1,7 @@
 /**
  * Neon Air Hockey 3D - Main Application
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AirHockey3D,
   GameMode,
@@ -24,8 +24,7 @@ import {
   doc,
   setDoc,
   getDoc,
-  updateDoc,
-  onSnapshot
+  updateDoc
 } from 'firebase/firestore';
 import {
   Volume2,
@@ -88,9 +87,8 @@ export default function App() {
 
   // Online Room State
   const [onlineRoom, setOnlineRoom] = useState<RoomRecord | null>(null);
+  const [gameDataChannel, setGameDataChannel] = useState<RTCDataChannel | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
-  const pendingRoomSync = useRef<{ roomId: string; fields: Partial<RoomRecord> } | null>(null);
-  const isSyncingRoom = useRef(false);
 
   // Modals
   const [isTesterOpen, setIsTesterOpen] = useState(false);
@@ -132,21 +130,7 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
-  // Online room synchronization listener
-  useEffect(() => {
-    if (!onlineRoom?.id) return;
-
-    const unsub = onSnapshot(doc(db, 'rooms', onlineRoom.id), snapshot => {
-      if (snapshot.exists()) {
-        const data = snapshot.data() as RoomRecord;
-        setOnlineRoom(data);
-      }
-    }, error => {
-      console.error('Online room updates failed:', error);
-    });
-
-    return () => unsub();
-  }, [onlineRoom?.id]);
+  useEffect(() => () => gameDataChannel?.close(), [gameDataChannel]);
 
   // Audio Toggle
   const toggleSound = () => {
@@ -155,43 +139,6 @@ export default function App() {
     setIsMuted(nextMute);
     if (!nextMute) sound.playClick();
   };
-
-  // Online Room sync callback from 3D component
-  const handleSyncRoom = useCallback((updatedProps: Partial<RoomRecord>) => {
-    if (!onlineRoom?.id) return;
-
-    const queued = pendingRoomSync.current;
-    pendingRoomSync.current = {
-      roomId: onlineRoom.id,
-      fields: queued?.roomId === onlineRoom.id
-        ? { ...queued.fields, ...updatedProps }
-        : updatedProps
-    };
-
-    if (isSyncingRoom.current) return;
-
-    const flushPendingSync = async () => {
-      isSyncingRoom.current = true;
-      try {
-        while (pendingRoomSync.current) {
-          const pending = pendingRoomSync.current;
-          pendingRoomSync.current = null;
-          try {
-            await updateDoc(doc(db, 'rooms', pending.roomId), {
-              ...pending.fields,
-              updatedAt: new Date().toISOString()
-            });
-          } catch (error) {
-            console.error('Failed to synchronize online match state:', error);
-          }
-        }
-      } finally {
-        isSyncingRoom.current = false;
-      }
-    };
-
-    void flushPendingSync();
-  }, [onlineRoom?.id]);
 
   // Handle Game Over: record score to leaderboard
   const handleGameOver = async (winner: 'player' | 'opponent', scores: { player: number; opponent: number }) => {
@@ -231,12 +178,28 @@ export default function App() {
     }
   };
 
-  const handleStartOnlineMatch = (newMode: 'online_host' | 'online_guest', room: RoomRecord) => {
+  const handleStartOnlineMatch = (
+    newMode: 'online_host' | 'online_guest',
+    room: RoomRecord,
+    dataChannel: RTCDataChannel
+  ) => {
+    gameDataChannel?.close();
     setOnlineRoom(room);
+    setGameDataChannel(dataChannel);
     setMode(newMode);
   };
 
   const leaveOnlineRoom = () => {
+    gameDataChannel?.close();
+    if (onlineRoom?.id) {
+      updateDoc(doc(db, 'rooms', onlineRoom.id), {
+        status: 'abandoned',
+        updatedAt: new Date().toISOString()
+      }).catch(error => {
+        console.error('Failed to mark online match as left:', error);
+      });
+    }
+    setGameDataChannel(null);
     setOnlineRoom(null);
     setMode('bot');
   };
@@ -497,7 +460,7 @@ export default function App() {
           mouseSensitivityMultiplier={mouseSensitivity}
           roomCode={onlineRoom?.roomCode}
           onlineRoom={onlineRoom}
-          onSyncRoom={handleSyncRoom}
+          gameDataChannel={gameDataChannel}
           onScoreUpdate={scores => {
             setPlayerScore(scores.player);
             setOpponentScore(scores.opponent);

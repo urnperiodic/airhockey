@@ -3,8 +3,6 @@ import {
   db,
   auth,
   RoomRecord,
-  handleFirestoreError,
-  OperationType
 } from '../firebase';
 import {
   doc,
@@ -14,7 +12,7 @@ import {
   query,
   where,
   getDocsFromServer,
-  onSnapshot
+  getDocFromServer
 } from 'firebase/firestore';
 import {
   Users,
@@ -29,11 +27,16 @@ import {
   Sparkles
 } from 'lucide-react';
 import { sound } from '../services/sound';
+import {
+  createGuestPeerSession,
+  createHostPeerSession,
+  PeerGameSession
+} from '../services/peerGame';
 
 interface MultiplayerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onStartOnlineMatch: (mode: 'online_host' | 'online_guest', room: RoomRecord) => void;
+  onStartOnlineMatch: (mode: 'online_host' | 'online_guest', room: RoomRecord, dataChannel: RTCDataChannel) => void;
 }
 
 export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
@@ -49,7 +52,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const [isJoining, setIsJoining] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [copied, setCopied] = useState(false);
-  const roomListenerRef = useRef<(() => void) | null>(null);
+  const peerSessionRef = useRef<PeerGameSession | null>(null);
 
   const WAITING_ROOM_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -66,20 +69,20 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   }, [isOpen, tab]);
 
   const abandonWaitingRoom = async () => {
+    peerSessionRef.current?.close();
+    peerSessionRef.current = null;
     if (!hostRoomId || !isWaitingForGuest) return;
 
     await runTransaction(db, async transaction => {
       const roomRef = doc(db, 'rooms', hostRoomId);
       const roomSnap = await transaction.get(roomRef);
-      if (roomSnap.exists() && roomSnap.data().status === 'waiting') {
+      if (roomSnap.exists() && ['waiting', 'playing'].includes(roomSnap.data().status)) {
         transaction.update(roomRef, {
           status: 'abandoned',
           updatedAt: new Date().toISOString()
         });
       }
     });
-    roomListenerRef.current?.();
-    roomListenerRef.current = null;
     setHostRoomId(null);
     setIsWaitingForGuest(false);
   };
@@ -97,6 +100,9 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const handleTabChange = async (nextTab: 'create' | 'join') => {
     try {
       await abandonWaitingRoom();
+      peerSessionRef.current?.close();
+      peerSessionRef.current = null;
+      setIsJoining(false);
       setTab(nextTab);
       setErrorMessage('');
     } catch (err: unknown) {
@@ -134,33 +140,41 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     try {
       await setDoc(doc(db, 'rooms', roomId), roomPayload);
       setHostRoomId(roomId);
+      const session = createHostPeerSession(roomId);
+      peerSessionRef.current = session;
+      await session.connect();
+      const dataChannel = session.dataChannel;
+      if (!dataChannel) throw new Error('The peer-to-peer game channel did not open.');
 
-      // Listen for guest joining
-      const unsub = onSnapshot(doc(db, 'rooms', roomId), docSnap => {
-        if (docSnap.exists()) {
-          const roomData = docSnap.data() as RoomRecord;
-          if (roomData.status === 'playing' && roomData.guestId) {
-            unsub();
-            roomListenerRef.current = null;
-            setIsWaitingForGuest(false);
-            setHostRoomId(null);
-            sound.playWhistle();
-            onStartOnlineMatch('online_host', roomData);
-            onClose();
-          }
-        }
-      }, err => {
-        roomListenerRef.current?.();
-        roomListenerRef.current = null;
-        setIsWaitingForGuest(false);
-        setErrorMessage(`Room connection lost: ${err.message}`);
-      });
-      roomListenerRef.current = unsub;
+      const latestRoom = await getDocFromServer(doc(db, 'rooms', roomId));
+      if (!latestRoom.exists()) throw new Error('The match room disappeared while connecting.');
+      peerSessionRef.current = null;
+      setIsWaitingForGuest(false);
+      setHostRoomId(null);
+      sound.playWhistle();
+      onStartOnlineMatch('online_host', latestRoom.data() as RoomRecord, dataChannel);
+      onClose();
     } catch (err: unknown) {
+      peerSessionRef.current?.close();
+      peerSessionRef.current = null;
+      try {
+        await runTransaction(db, async transaction => {
+          const roomRef = doc(db, 'rooms', roomId);
+          const roomSnap = await transaction.get(roomRef);
+          if (roomSnap.exists() && ['waiting', 'playing'].includes(roomSnap.data().status)) {
+            transaction.update(roomRef, {
+              status: 'abandoned',
+              updatedAt: new Date().toISOString()
+            });
+          }
+        });
+      } catch (cleanupError) {
+        console.error('Failed to release match after peer connection failure:', cleanupError);
+      }
       setIsWaitingForGuest(false);
       const msg = err instanceof Error ? err.message : String(err);
-      setErrorMessage(`Failed to create room in Firebase: ${msg}`);
-      handleFirestoreError(err, OperationType.CREATE, `rooms/${roomId}`);
+      setErrorMessage(`Failed to connect to the match: ${msg}`);
+      console.error('Failed to create peer-to-peer match:', err);
     }
   };
 
@@ -179,6 +193,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     const user = auth.currentUser;
     const guestId = user?.uid || `guest_player_${Math.random().toString(36).substring(2, 7)}`;
     const guestName = user?.displayName || 'Player 2 (Challenger)';
+    let claimedRoomId: string | null = null;
 
     try {
       const q = query(collection(db, 'rooms'), where('roomCode', '==', code));
@@ -233,16 +248,45 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         return;
       }
 
+      claimedRoomId = joinedRoom.id;
+      const session = createGuestPeerSession(joinedRoom.id);
+      peerSessionRef.current = session;
+      await session.connect();
+      const dataChannel = session.dataChannel;
+      if (!dataChannel) throw new Error('The peer-to-peer game channel did not open.');
+      const latestRoom = await getDocFromServer(doc(db, 'rooms', joinedRoom.id));
+      if (!latestRoom.exists()) throw new Error('The match room disappeared while connecting.');
+      claimedRoomId = null;
+      peerSessionRef.current = null;
       setIsJoining(false);
       sound.playWhistle();
-      onStartOnlineMatch('online_guest', joinedRoom);
+      onStartOnlineMatch('online_guest', latestRoom.data() as RoomRecord, dataChannel);
       onClose();
 
     } catch (err: unknown) {
+      peerSessionRef.current?.close();
+      peerSessionRef.current = null;
+      if (claimedRoomId) {
+        try {
+          const roomId = claimedRoomId;
+          await runTransaction(db, async transaction => {
+            const roomRef = doc(db, 'rooms', roomId);
+            const roomSnap = await transaction.get(roomRef);
+            if (roomSnap.exists() && roomSnap.data().guestId === guestId) {
+              transaction.update(roomRef, {
+                status: 'abandoned',
+                updatedAt: new Date().toISOString()
+              });
+            }
+          });
+        } catch (cleanupError) {
+          console.error('Failed to release match after peer connection failure:', cleanupError);
+        }
+      }
       setIsJoining(false);
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMessage(`Join error: ${msg}`);
-      handleFirestoreError(err, OperationType.GET, 'rooms');
+      console.error('Failed to join peer-to-peer match:', err);
     }
   };
 
@@ -389,7 +433,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-3 bg-slate-950 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-between">
-          <span>Synced via Google Firebase Cloud Firestore</span>
+          <span>Live game data uses a direct peer connection</span>
           <span className="flex items-center gap-1 text-emerald-400">
             <Radio className="w-3 h-3 animate-ping" /> Real-time active
           </span>

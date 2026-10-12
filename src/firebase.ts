@@ -164,19 +164,10 @@ export interface RoomRecord {
   hostScore: number;
   guestScore: number;
   winningScore: number;
-  winnerId?: string;
-  lastUpdateBy?: string;
-  puckX?: number;
-  puckY?: number;
-  puckVx?: number;
-  puckVy?: number;
-  hostPaddleX?: number;
-  hostPaddleY?: number;
-  guestPaddleX?: number;
-  guestPaddleY?: number;
-  guestPaddleVx?: number;
-  guestPaddleVy?: number;
-  guestPaddleUpdatedAt?: number;
+  hostOffer?: RTCSessionDescriptionInit;
+  guestAnswer?: RTCSessionDescriptionInit;
+  hostCandidates?: RTCIceCandidateInit[];
+  guestCandidates?: RTCIceCandidateInit[];
   createdAt: string;
   updatedAt: string;
 }
