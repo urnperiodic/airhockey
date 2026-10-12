@@ -67,6 +67,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   const [announcement, setAnnouncement] = useState<string>('GET READY');
   const [isServing, setIsServing] = useState(true);
   const [selectedServeX, setSelectedServeX] = useState(0);
+  const [helpDisabled, setHelpDisabled] = useState(false);
   const [winner, setWinner] = useState<'player' | 'opponent' | null>(null);
 
   // References for render loop & physics mutable states to run at solid 60+ FPS without re-renders
@@ -75,7 +76,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     tableWidth: 14,
     tableLength: 26,
     goalWidth: 3.2,
-    puckRadius: 0.45,
+    puckRadius: 0.55,
     p1MalletRadius: 1.4, // Bigger player mallet
     p2MalletRadius: 0.8, // Smaller bot / opponent mallet
 
@@ -1421,6 +1422,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       if (s.p1Mesh) {
         s.p1Mesh.position.x = s.p1X;
         s.p1Mesh.position.z = s.p1Z;
+        s.p1Mesh.scale.setScalar(s.p1MalletRadius / 1.4);
       }
       if (s.p2Mesh) {
         s.p2Mesh.position.x = s.p2X;
@@ -1535,13 +1537,26 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     (mode === 'online_guest' && stateRef.current.serveSide === 'p2') ||
     (mode === 'online_host' && stateRef.current.serveSide === 'p1') ||
     (mode === 'bot' && stateRef.current.serveSide === 'p1');
-  const submitServe = () => {
+  const submitServe = (serveX = selectedServeX) => {
     if (mode === 'online_guest') {
-      sendPeerPacket(gameDataChannel, { type: 'serve-request', x: selectedServeX });
+      sendPeerPacket(gameDataChannel, { type: 'serve-request', x: serveX });
       setAnnouncement('SERVE REQUESTED');
       return;
     }
-    servePuck(localServeSide, selectedServeX);
+    servePuck(localServeSide, serveX);
+  };
+  const pickRandomServe = () => {
+    const spots = [-3.5, 0, 3.5];
+    const randomServeX = spots[Math.floor(Math.random() * spots.length)];
+    setSelectedServeX(randomServeX);
+    submitServe(randomServeX);
+  };
+  const toggleHelp = () => {
+    const nextHelpDisabled = !helpDisabled;
+    stateRef.current.p1MalletRadius = nextHelpDisabled
+      ? stateRef.current.p2MalletRadius
+      : 1.4;
+    setHelpDisabled(nextHelpDisabled);
   };
 
   return (
@@ -1564,14 +1579,14 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       )}
 
       {isServing && stateRef.current.servePending && !winner && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center p-4 pointer-events-none">
-          <div className="w-full max-w-sm rounded-2xl border border-cyan-400/40 bg-slate-950/90 p-5 text-center shadow-2xl shadow-cyan-950/40 backdrop-blur-md pointer-events-auto">
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
-              {canChooseServe ? 'Choose your serve position' : 'Waiting for opponent to serve'}
+        <div className="absolute bottom-14 sm:bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+          <div className="rounded-xl border border-cyan-400/40 bg-slate-950/90 px-3 py-2 text-center shadow-lg shadow-cyan-950/40 backdrop-blur-md pointer-events-auto">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+              {canChooseServe ? 'Choose serve position' : 'Waiting for opponent to serve'}
             </p>
             {canChooseServe ? (
               <>
-                <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="flex items-center justify-center gap-1.5">
                   {[
                     { x: -3.5, label: 'Left' },
                     { x: 0, label: 'Center' },
@@ -1580,7 +1595,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                     <button
                       key={spot.label}
                       onClick={() => setSelectedServeX(spot.x)}
-                      className={`rounded-xl border px-3 py-2 text-sm font-bold transition ${
+                      className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold transition ${
                         selectedServeX === spot.x
                           ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
                           : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500/50'
@@ -1590,18 +1605,36 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                     </button>
                   ))}
                 </div>
-                <button
-                  onClick={submitServe}
-                  className="mt-3 w-full rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-2.5 text-sm font-black uppercase tracking-wider text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:brightness-110"
-                >
-                  Serve
-                </button>
+                <div className="mt-1.5 flex gap-1.5">
+                  <button
+                    onClick={() => submitServe()}
+                    className="flex-1 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-slate-950 transition hover:brightness-110"
+                  >
+                    Serve
+                  </button>
+                  <button
+                    onClick={pickRandomServe}
+                    className="flex-1 rounded-lg border border-violet-400/50 bg-violet-500/15 px-3 py-1.5 text-xs font-bold text-violet-100 transition hover:bg-violet-500/25"
+                  >
+                    Random Serve
+                  </button>
+                </div>
               </>
             ) : (
-              <p className="mt-2 text-xs text-slate-400">The puck is held until the server chooses a spot.</p>
+              <p className="text-xs text-slate-400">The puck is held until the server chooses a spot.</p>
             )}
           </div>
         </div>
+      )}
+
+      {mode === 'bot' && !winner && (
+        <button
+          onClick={toggleHelp}
+          className="absolute top-14 left-3 z-20 rounded-lg border border-slate-700 bg-slate-950/85 px-3 py-2 text-xs font-bold text-slate-200 shadow-lg backdrop-blur transition hover:border-cyan-400/60 hover:text-cyan-100"
+          aria-pressed={helpDisabled}
+        >
+          {helpDisabled ? 'Enable Help' : 'Disable Help'}
+        </button>
       )}
 
       {/* Game Over Screen */}
