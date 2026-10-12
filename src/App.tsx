@@ -58,6 +58,7 @@ export default function App() {
   const [winningScore, setWinningScore] = useState(10);
   const [allowOwnGoals, setAllowOwnGoals] = useState(true);
   const [helpDisabled, setHelpDisabled] = useState(false);
+  const [gameAnnouncement, setGameAnnouncement] = useState('');
   const [playerScore, setPlayerScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
   const [mouseSensitivity, setMouseSensitivity] = useState<number>(2.5);
@@ -268,8 +269,16 @@ export default function App() {
           )}
         </div>
 
-        {mode === 'online_host' && (
-          <div className="flex items-center justify-between">
+        {gameAnnouncement && (
+          <div className="mx-2 hidden min-w-0 flex-1 justify-center sm:flex">
+            <div className="max-w-full truncate rounded-full border border-cyan-400/40 bg-slate-950/85 px-4 py-1.5 text-xs font-black uppercase tracking-wider text-cyan-100 shadow-lg shadow-cyan-950/40">
+              {gameAnnouncement}
+            </div>
+          </div>
+        )}
+
+        {(mode === 'online_host' || mode === 'bot') && (
+          <div className="flex items-center gap-2">
             <span className="text-slate-300 font-medium">Own-goal scoring:</span>
             <button
               onClick={() => setAllowOwnGoals(value => !value)}
@@ -489,7 +498,12 @@ export default function App() {
             <span className="text-slate-500">:</span>
             <span className="text-rose-400 font-bold">{opponentScore}</span>
           </div>
-          <button
+            {gameAnnouncement && (
+              <span className="max-w-40 truncate rounded-full border border-cyan-400/40 bg-slate-950/80 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-100">
+                {gameAnnouncement}
+              </span>
+            )}
+            <button
             onClick={toggleFullscreen}
             className="ml-2 px-2 py-1 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs hover:bg-cyan-400 transition flex items-center gap-1"
             title="Exit Fullscreen"
@@ -510,6 +524,7 @@ export default function App() {
           cameraView={cameraView}
           mouseSensitivityMultiplier={mouseSensitivity}
           helpDisabled={helpDisabled}
+          onAnnouncementChange={setGameAnnouncement}
           roomCode={onlineRoom?.roomCode}
           onlineRoom={onlineRoom}
           gameDataChannel={gameDataChannel}
