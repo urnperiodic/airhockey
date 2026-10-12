@@ -61,6 +61,7 @@ export default function App() {
   const [puckSpeedMultiplier, setPuckSpeedMultiplier] = useState(1);
   const [puckFriction, setPuckFriction] = useState(0.08);
   const [gameAnnouncement, setGameAnnouncement] = useState('');
+  const [showWhatsNew, setShowWhatsNew] = useState(true);
   const [playerScore, setPlayerScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
   const [mouseSensitivity, setMouseSensitivity] = useState<number>(2.5);
@@ -557,7 +558,7 @@ export default function App() {
       )}
 
       {/* 3D First-Person Air Hockey Table Area */}
-      <main className="relative flex-1 w-full h-full">
+      <main id="hockey-game" className="relative flex-1 w-full h-full">
         <AirHockey3D
           mode={mode}
           botDifficulty={botDifficulty}
@@ -583,6 +584,38 @@ export default function App() {
           onGameOver={handleGameOver}
         />
       </main>
+
+      {showWhatsNew && (
+        <aside
+          aria-label="What's new"
+          className="fixed bottom-4 right-4 z-40 w-72 rounded-lg border border-slate-700 bg-slate-900 p-4 text-slate-100 shadow-xl"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold">What's new</h2>
+              <p className="mt-1 text-xs text-slate-400">Jump into a match on the rink.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowWhatsNew(false)}
+              aria-label="Dismiss What's new"
+              className="rounded px-1.5 text-slate-400 hover:bg-slate-800 hover:text-white"
+            >
+              ×
+            </button>
+          </div>
+          <a
+            href="#hockey-game"
+            onClick={() => {
+              setShowWhatsNew(false);
+              setIsMenuOpen(false);
+            }}
+            className="mt-3 inline-flex rounded-md bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-600"
+          >
+            Play Now!
+          </a>
+        </aside>
+      )}
 
       {/* Modals */}
       <FirebaseTester
