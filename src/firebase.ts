@@ -174,6 +174,9 @@ export interface RoomRecord {
   hostPaddleY?: number;
   guestPaddleX?: number;
   guestPaddleY?: number;
+  guestPaddleVx?: number;
+  guestPaddleVy?: number;
+  guestPaddleUpdatedAt?: number;
   createdAt: string;
   updatedAt: string;
 }

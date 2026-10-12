@@ -106,6 +106,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
     // Online sync throttle
     lastSyncTime: 0,
+    lastRemotePaddleTimestamp: 0,
+    lastRemotePaddleUpdateTime: 0,
 
     // Key states for local 2-player mode
     keys: {} as Record<string, boolean>,
@@ -172,9 +174,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         stateRef.current.puckZ = (onlineRoom.puckY - 0.5) * stateRef.current.tableLength;
       }
       if (onlineRoom.hostPaddleX !== undefined && onlineRoom.hostPaddleY !== undefined) {
-        // Host is P2 for the guest
+        // Host's near-side paddle is on the far side from the guest's view.
         stateRef.current.p2X = (onlineRoom.hostPaddleX - 0.5) * stateRef.current.tableWidth;
-        stateRef.current.p2Z = (onlineRoom.hostPaddleY - 0.5) * stateRef.current.tableLength;
+        stateRef.current.p2Z = (0.5 - onlineRoom.hostPaddleY) * stateRef.current.tableLength;
       }
       if (onlineRoom.hostScore !== undefined && onlineRoom.guestScore !== undefined) {
         setPlayerScore(onlineRoom.guestScore);
@@ -184,9 +186,29 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       }
     } else if (mode === 'online_host' && onlineRoom) {
       if (onlineRoom.guestPaddleX !== undefined && onlineRoom.guestPaddleY !== undefined) {
-        // Guest is P2 for the host
-        stateRef.current.p2X = (onlineRoom.guestPaddleX - 0.5) * stateRef.current.tableWidth;
-        stateRef.current.p2Z = (onlineRoom.guestPaddleY - 0.5) * stateRef.current.tableLength;
+        // Guest's near-side paddle is on the far side from the host's view.
+        const s = stateRef.current;
+        const now = performance.now();
+        const nextX = (onlineRoom.guestPaddleX - 0.5) * s.tableWidth;
+        const nextZ = (onlineRoom.guestPaddleY - 0.5) * s.tableLength;
+        const remotePaddleTimestamp = onlineRoom.guestPaddleUpdatedAt;
+        if (
+          typeof remotePaddleTimestamp === 'number' &&
+          remotePaddleTimestamp !== s.lastRemotePaddleTimestamp
+        ) {
+          const guestVx = onlineRoom.guestPaddleVx ?? 0;
+          const guestVz = onlineRoom.guestPaddleVy ?? 0;
+          s.p2Vx = Math.max(-30, Math.min(30, guestVx));
+          s.p2Vz = Math.max(-30, Math.min(30, guestVz));
+          s.lastRemotePaddleTimestamp = remotePaddleTimestamp;
+          s.lastRemotePaddleUpdateTime = now;
+        } else if (s.lastRemotePaddleUpdateTime === 0) {
+          s.p2Vx = 0;
+          s.p2Vz = 0;
+        }
+
+        s.p2X = nextX;
+        s.p2Z = nextZ;
       }
     }
   }, [onlineRoom, mode]);
@@ -741,6 +763,13 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
       const currentMode = propsRef.current.mode;
       const currentDifficulty = propsRef.current.botDifficulty;
+      if (
+        currentMode === 'online_host' &&
+        time - s.lastRemotePaddleUpdateTime > 150
+      ) {
+        s.p2Vx = 0;
+        s.p2Vz = 0;
+      }
       const halfW = s.tableWidth / 2;
       const halfL = s.tableLength / 2;
       const goalHalfW = s.goalWidth / 2;
@@ -1252,7 +1281,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           s.lastSyncTime = time;
           propsRef.current.onSyncRoom({
             guestPaddleX: (s.p1X / s.tableWidth) + 0.5,
-            guestPaddleY: (s.p1Z / s.tableLength) + 0.5
+            guestPaddleY: 0.5 - (s.p1Z / s.tableLength),
+            guestPaddleVx: s.p1Vx,
+            guestPaddleVy: -s.p1Vz,
+            guestPaddleUpdatedAt: Date.now()
           });
         }
       }
