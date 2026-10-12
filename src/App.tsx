@@ -239,19 +239,19 @@ export default function App() {
     <div className="relative w-screen h-screen overflow-hidden flex flex-col bg-slate-950 text-slate-100 font-sans select-none">
       
       {/* Top Main Navigation / Bar - Automatically hidden when Fullscreen */}
-      <header className={`relative z-30 flex items-center justify-between px-3 md:px-6 py-2 bg-slate-900/95 backdrop-blur-md border-b border-cyan-500/25 transition-all duration-300 ${isFullscreen ? 'hidden' : 'flex'}`}>
+      <header className={`relative z-30 flex items-center justify-between gap-2 px-3 md:px-6 py-2 bg-slate-900 border-b border-slate-700 ${isFullscreen ? 'hidden' : 'flex'}`}>
         
         {/* Left: Score Section */}
-        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-slate-950/90 border border-cyan-500/30 shadow-inner">
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700">
           <div className="flex items-center gap-1">
             <span className="text-[9px] font-bold tracking-wider text-cyan-400 uppercase font-mono">YOU</span>
-            <span className="text-xl font-black font-mono text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.9)]">
+            <span className="text-xl font-bold font-mono text-cyan-300">
               {playerScore}
             </span>
           </div>
           <span className="text-slate-600 font-black text-xs">:</span>
           <div className="flex items-center gap-1">
-            <span className="text-xl font-black font-mono text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.9)]">
+            <span className="text-xl font-bold font-mono text-rose-300">
               {opponentScore}
             </span>
             <span className="text-[9px] font-bold tracking-wider text-rose-400 uppercase font-mono">
@@ -261,7 +261,7 @@ export default function App() {
           {mode === 'bot' && (
             <button
               onClick={() => setHelpDisabled(disabled => !disabled)}
-              className="ml-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-100"
+              className="ml-1 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-medium text-slate-200 transition hover:bg-slate-800"
               aria-pressed={helpDisabled}
             >
               {helpDisabled ? 'Enable Help' : 'Disable Help'}
@@ -270,19 +270,19 @@ export default function App() {
         </div>
 
         {gameAnnouncement && (
-          <div className="mx-2 hidden min-w-0 flex-1 justify-center sm:flex">
-            <div className="max-w-full truncate rounded-full border border-cyan-400/40 bg-slate-950/85 px-4 py-1.5 text-xs font-black uppercase tracking-wider text-cyan-100 shadow-lg shadow-cyan-950/40">
-              {gameAnnouncement}
+          <div className="mx-1 flex min-w-0 flex-1 justify-center">
+            <div className="max-w-full truncate rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-200">
+              {gameAnnouncement.toLowerCase().replace(/^./, letter => letter.toUpperCase())}
             </div>
           </div>
         )}
 
         {(mode === 'online_host' || mode === 'bot') && (
           <div className="flex items-center gap-2">
-            <span className="text-slate-300 font-medium">Own-goal scoring:</span>
+            <span className="hidden md:inline text-slate-300 text-xs">Own goals:</span>
             <button
               onClick={() => setAllowOwnGoals(value => !value)}
-              className={`px-2.5 py-1 rounded-lg border font-bold ${
+              className={`px-2.5 py-1 rounded-md border text-xs font-medium ${
                 allowOwnGoals
                   ? 'bg-rose-500/10 border-rose-500/40 text-rose-300'
                   : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
@@ -303,8 +303,8 @@ export default function App() {
               onClick={() => setIsMenuOpen(prev => !prev)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
                 isMenuOpen
-                  ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md shadow-cyan-500/30'
-                  : 'bg-slate-950 text-cyan-300 border-cyan-500/40 hover:bg-slate-900'
+                  ? 'bg-slate-700 text-white border-slate-500'
+                  : 'bg-slate-950 text-slate-300 border-slate-700 hover:bg-slate-800'
               }`}
             >
               <Sliders className="w-3.5 h-3.5" />
@@ -314,9 +314,9 @@ export default function App() {
 
             {/* Dropdown Panel */}
             {isMenuOpen && (
-              <div className="absolute right-0 mt-2 w-80 md:w-96 p-4 rounded-2xl bg-slate-900 border border-cyan-500/40 shadow-2xl shadow-cyan-950/80 z-50 flex flex-col gap-3 text-xs animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="absolute right-0 mt-2 w-80 md:w-96 p-4 rounded-xl bg-slate-900 border border-slate-700 shadow-xl z-50 flex flex-col gap-3 text-xs">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-                  <span className="font-bold text-cyan-400 uppercase tracking-wider font-mono">Air Hockey Controls</span>
+                  <span className="font-semibold text-slate-200">Game settings</span>
                   <button onClick={() => setIsMenuOpen(false)} className="text-slate-400 hover:text-white">
                     <X className="w-4 h-4" />
                   </button>
@@ -397,11 +397,11 @@ export default function App() {
                       onChange={e => setBotDifficulty(e.target.value as BotDifficulty)}
                       className="py-1 px-2.5 rounded-lg bg-slate-950 border border-cyan-500/40 text-cyan-300 font-bold outline-none cursor-pointer"
                     >
-                      <option value="rookie">🟢 Rookie</option>
-                      <option value="pro">🔵 Pro</option>
-                      <option value="master">🟡 Master</option>
-                      <option value="cyber">🔴 Cyber Beast</option>
-                      <option value="god">👑 God Bot</option>
+                      <option value="rookie">Rookie</option>
+                      <option value="pro">Pro</option>
+                      <option value="master">Master</option>
+                      <option value="cyber">Cyber</option>
+                      <option value="god">God</option>
                     </select>
                   </div>
                 )}
@@ -460,7 +460,7 @@ export default function App() {
           {/* Quick perspective switch */}
           <button
             onClick={cycleCameraView}
-            className="p-2 rounded-xl bg-slate-950 hover:bg-slate-900 text-cyan-300 border border-cyan-500/30 transition flex items-center gap-1.5"
+            className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-700 transition flex items-center gap-1.5"
             title={`Switch perspective (V). Current: ${cameraView}`}
             aria-label={`Switch camera perspective, current view ${cameraView}`}
           >
@@ -471,7 +471,7 @@ export default function App() {
           {/* Fullscreen Button */}
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-xl bg-slate-950 hover:bg-slate-900 text-cyan-300 border border-cyan-500/30 transition flex items-center gap-1"
+            className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-700 transition flex items-center gap-1"
             title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
           >
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
@@ -480,7 +480,7 @@ export default function App() {
           {/* Sound Toggle */}
           <button
             onClick={toggleSound}
-            className="p-2 rounded-xl bg-slate-950 hover:bg-slate-900 text-cyan-300 border border-cyan-500/30 transition"
+            className="p-2 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 border border-slate-700 transition"
             title={isMuted ? 'Unmute' : 'Mute'}
           >
             {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-cyan-400" />}
@@ -492,20 +492,20 @@ export default function App() {
 
       {/* When in fullscreen, show a floating minimal exit fullscreen / score badge in the top corner */}
       {isFullscreen && (
-        <div className="absolute top-3 left-3 z-40 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 backdrop-blur-md border border-cyan-500/40 shadow-xl pointer-events-auto">
+        <div className="absolute top-3 left-3 z-40 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 pointer-events-auto">
           <div className="flex items-center gap-1.5 text-xs font-mono">
             <span className="text-cyan-400 font-bold">{playerScore}</span>
             <span className="text-slate-500">:</span>
             <span className="text-rose-400 font-bold">{opponentScore}</span>
           </div>
             {gameAnnouncement && (
-              <span className="max-w-40 truncate rounded-full border border-cyan-400/40 bg-slate-950/80 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-cyan-100">
-                {gameAnnouncement}
+              <span className="max-w-40 truncate rounded-md border border-slate-700 bg-slate-950 px-3 py-1 text-[10px] font-medium text-slate-200">
+                {gameAnnouncement.toLowerCase().replace(/^./, letter => letter.toUpperCase())}
               </span>
             )}
             <button
             onClick={toggleFullscreen}
-            className="ml-2 px-2 py-1 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs hover:bg-cyan-400 transition flex items-center gap-1"
+            className="ml-2 px-2 py-1 rounded-md bg-slate-700 text-white font-medium text-xs hover:bg-slate-600 transition flex items-center gap-1"
             title="Exit Fullscreen"
           >
             <Minimize className="w-3.5 h-3.5" />

@@ -1622,15 +1622,15 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       <canvas ref={canvasRef} className="block w-full h-full" />
 
       {isPuckInHitRange && (
-        <div className="absolute top-14 right-3 z-20 rounded-full border border-lime-300/70 bg-slate-950/90 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-lime-200 shadow-lg shadow-lime-400/20">
-          Puck in range - hit now!
+        <div className="absolute top-3 right-3 z-20 rounded-md border border-slate-600 bg-slate-900/95 px-3 py-1.5 text-xs font-medium text-slate-100">
+          Puck is close. You can hit it.
         </div>
       )}
 
       {isServing && stateRef.current.servePending && !winner && (
         <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-30 w-[calc(100vw-1rem)] max-w-xs -translate-x-1/2 pointer-events-none">
-          <div className="rounded-xl border border-cyan-400/40 bg-slate-950/95 px-3 py-2 text-center shadow-lg shadow-cyan-950/40 backdrop-blur-md pointer-events-auto">
-            <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+          <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-center shadow-lg pointer-events-auto">
+            <p className="mb-2 text-xs font-medium text-slate-200">
               {canChooseServe ? 'Choose serve position' : 'Waiting for opponent to serve'}
             </p>
             {canChooseServe ? (
@@ -1644,10 +1644,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                     <button
                       key={spot.label}
                       onClick={() => chooseServe(spot.x)}
-                      className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold transition ${
+                      className={`rounded-md border px-2.5 py-1.5 text-xs font-medium transition ${
                         selectedServeX === spot.x
-                          ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
-                          : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500/50'
+                          ? 'border-slate-400 bg-slate-700 text-white'
+                          : 'border-slate-700 bg-slate-950 text-slate-300 hover:bg-slate-800'
                       }`}
                     >
                       {spot.label}
@@ -1657,13 +1657,13 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
                 <div className="mt-1.5 flex gap-1.5">
                   <button
                     onClick={() => submitServe()}
-                    className="flex-1 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-slate-950 transition hover:brightness-110"
+                    className="flex-1 rounded-md border border-slate-500 bg-slate-700 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-600"
                   >
                     Serve
                   </button>
                   <button
                     onClick={pickRandomServe}
-                    className="flex-1 rounded-lg border border-violet-400/50 bg-violet-500/15 px-3 py-1.5 text-xs font-bold text-violet-100 transition hover:bg-violet-500/25"
+                    className="flex-1 rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-800"
                   >
                     Random Serve
                   </button>
@@ -1679,13 +1679,13 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       {/* Game Over Screen */}
       {winner && (
         <div className="absolute inset-0 z-40 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-md p-8 rounded-2xl bg-slate-900 border border-cyan-500/50 shadow-2xl shadow-cyan-900/60 text-center animate-in zoom-in-95">
-            <div className="inline-block px-4 py-1 mb-4 rounded-full text-xs font-mono font-semibold tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 uppercase">
+          <div className="w-full max-w-md p-8 rounded-xl bg-slate-900 border border-slate-700 shadow-xl text-center">
+            <div className="inline-block px-3 py-1 mb-4 rounded-md text-xs font-medium bg-slate-800 text-slate-300">
               Match Completed
             </div>
 
-            <h2 className={`text-4xl font-extrabold mb-2 tracking-tight ${winner === 'player' ? 'text-cyan-400 drop-shadow-[0_0_15px_rgba(6,182,212,0.8)]' : 'text-rose-400 drop-shadow-[0_0_15px_rgba(244,63,94,0.8)]'}`}>
-              {winner === 'player' ? 'YOU WON!' : 'OPPONENT WON!'}
+            <h2 className={`text-3xl font-bold mb-2 ${winner === 'player' ? 'text-cyan-300' : 'text-rose-300'}`}>
+              {winner === 'player' ? 'You won' : 'Opponent won'}
             </h2>
 
             <p className="text-sm text-slate-300 mb-6">
@@ -1694,7 +1694,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
             <button
               onClick={resetMatch}
-              className="w-full py-3.5 px-6 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-lg shadow-cyan-500/30 active:scale-95 transition"
+              className="w-full py-3 px-6 rounded-lg font-semibold text-sm bg-slate-700 hover:bg-slate-600 text-white transition"
             >
               Play Again
             </button>
