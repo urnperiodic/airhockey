@@ -678,64 +678,86 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       const radius = isP1 ? s.p1MalletRadius : s.p2MalletRadius;
       const group = new THREE.Group();
 
-      const mainColor = isP1 ? 0x00d4ff : 0xff0055;
-      const glowColor = isP1 ? 0x00ffff : 0xff1744;
-
-      // Base disc
-      const baseGeo = new THREE.CylinderGeometry(radius, radius + 0.1, 0.35, 32);
-      const baseMat = new THREE.MeshStandardMaterial({
-        color: mainColor,
-        roughness: 0.2,
-        metalness: 0.6,
-        emissive: glowColor,
-        emissiveIntensity: 0.16
+      const sideColor = isP1 ? 0x00d4ff : 0xff3f76;
+      const deckMat = new THREE.MeshStandardMaterial({
+        color: isP1 ? 0x164653 : 0x55233b,
+        roughness: 0.28,
+        metalness: 0.78
       });
-      baseMat.userData.colorRole = 'main';
-      const base = new THREE.Mesh(baseGeo, baseMat);
-      base.position.y = 0.175;
-      base.castShadow = true;
-      group.add(base);
-
-      // Felt rim bottom
-      const feltGeo = new THREE.CylinderGeometry(radius + 0.05, radius + 0.05, 0.06, 32);
-      const feltMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.9 });
-      const felt = new THREE.Mesh(feltGeo, feltMat);
-      felt.position.y = 0.03;
-      group.add(felt);
-
-      // Handle shaft
-      const shaftGeo = new THREE.CylinderGeometry(0.38, 0.55, 0.7, 24);
-      const shaftMat = new THREE.MeshStandardMaterial({
-        color: 0x111111,
-        roughness: 0.3,
-        metalness: 0.8
+      const accentMat = new THREE.MeshStandardMaterial({
+        color: sideColor,
+        roughness: 0.22,
+        metalness: 0.55,
+        emissive: sideColor,
+        emissiveIntensity: 0.5
       });
-      const shaft = new THREE.Mesh(shaftGeo, shaftMat);
-      shaft.position.y = 0.65;
-      shaft.castShadow = true;
-      group.add(shaft);
-
-      // Top handle knob
-      const knobGeo = new THREE.SphereGeometry(0.5, 24, 24);
-      const knobMat = new THREE.MeshStandardMaterial({
-        color: mainColor,
-        roughness: 0.1,
-        metalness: 0.4
+      accentMat.userData.colorRole = 'main';
+      const glowMat = new THREE.MeshBasicMaterial({ color: sideColor });
+      glowMat.userData.colorRole = 'glow';
+      const darkMetalMat = new THREE.MeshStandardMaterial({
+        color: 0x121a25,
+        roughness: 0.24,
+        metalness: 0.86
       });
-      knobMat.userData.colorRole = 'main';
-      const knob = new THREE.Mesh(knobGeo, knobMat);
-      knob.position.y = 1.1;
-      knob.castShadow = true;
-      group.add(knob);
 
-      // Neon Accent Ring
-      const ringGeo = new THREE.TorusGeometry(radius * 0.7, 0.05, 12, 32);
-      const ringMat = new THREE.MeshBasicMaterial({ color: glowColor });
-      ringMat.userData.colorRole = 'glow';
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 0.36;
-      group.add(ring);
+      const addCylinder = (
+        topRadius: number,
+        bottomRadius: number,
+        height: number,
+        y: number,
+        material: THREE.Material
+      ) => {
+        const mesh = new THREE.Mesh(
+          new THREE.CylinderGeometry(topRadius, bottomRadius, height, 48),
+          material
+        );
+        mesh.position.y = y;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+        return mesh;
+      };
+
+      const addRing = (ringRadius: number, tube: number, y: number, material: THREE.Material) => {
+        const ring = new THREE.Mesh(
+          new THREE.TorusGeometry(ringRadius, tube, 10, 48),
+          material
+        );
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = y;
+        group.add(ring);
+        return ring;
+      };
+
+      addCylinder(radius * 0.9, radius, 0.24, 0.14, darkMetalMat);
+      addRing(radius * 0.88, 0.065, 0.17, glowMat);
+      addCylinder(radius * 0.78, radius * 0.84, 0.12, 0.31, deckMat);
+      addRing(radius * 0.68, 0.045, 0.38, accentMat);
+      addCylinder(radius * 0.52, radius * 0.58, 0.075, 0.405, accentMat);
+
+      const centerLens = new THREE.Mesh(
+        new THREE.SphereGeometry(radius * 0.2, 24, 16),
+        glowMat
+      );
+      centerLens.scale.y = 0.28;
+      centerLens.position.y = 0.46;
+      centerLens.castShadow = true;
+      group.add(centerLens);
+
+      for (let index = 0; index < 3; index++) {
+        const marker = new THREE.Mesh(
+          new THREE.BoxGeometry(radius * 0.09, 0.025, radius * 0.25),
+          glowMat
+        );
+        const angle = (index / 3) * Math.PI * 2;
+        marker.position.set(
+          Math.cos(angle) * radius * 0.43,
+          0.45,
+          Math.sin(angle) * radius * 0.43
+        );
+        marker.rotation.y = -angle;
+        group.add(marker);
+      }
 
       return group;
     };
