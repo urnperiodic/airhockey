@@ -215,6 +215,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           const role = material.userData.colorRole;
           if (role === 'main') material.color.setHex(colors[color].main);
           if (role === 'glow') material.color.setHex(colors[color].glow);
+          if (role === 'main' && material instanceof THREE.MeshStandardMaterial) {
+            material.emissive.setHex(colors[color].glow);
+          }
         }
       });
     };
@@ -273,6 +276,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.servePending = packet.servePending as boolean;
         s.serveSide = packet.serveSide as 'p1' | 'p2';
         setIsServing(s.servePending);
+        if (s.servePending) {
+          setAnnouncement(s.serveSide === 'p2' ? 'YOUR SERVE' : 'OPPONENT SERVE');
+        }
         setPlayerScore(s.p1Score);
         setOpponentScore(s.p2Score);
         if (s.gameOver !== packet.gameOver) {
@@ -371,10 +377,12 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.serveSide = 'p1';
     s.requestedServeX = null;
     s.botGracePeriodUntil = performance.now() + 1500;
+    setIsServing(true);
+    setSelectedServeX(0);
     setPlayerScore(0);
     setOpponentScore(0);
     setWinner(null);
-    setAnnouncement('FACEOFF');
+    setAnnouncement('CHOOSE YOUR SERVE');
     sound.playWhistle();
     propsRef.current.onScoreUpdate?.({ player: 0, opponent: 0 });
     setTimeout(() => {
@@ -453,9 +461,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     // Rink surface
     const surfaceGeo = new THREE.BoxGeometry(s.tableWidth, 0.3, s.tableLength);
     const surfaceMat = new THREE.MeshStandardMaterial({
-      color: 0x0a1122,
-      roughness: 0.15,
-      metalness: 0.45,
+      color: 0x101d32,
+      roughness: 0.22,
+      metalness: 0.32,
       envMapIntensity: 0.8
     });
     const rinkMesh = new THREE.Mesh(surfaceGeo, surfaceMat);
@@ -487,6 +495,25 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     const centerDot = new THREE.Mesh(centerDotGeo, centerDotMat);
     centerDot.rotation.x = -Math.PI / 2;
     linesGroup.add(centerDot);
+
+    // Faceoff rings on each half add clearer rink structure.
+    for (const z of [-halfL * 0.48, halfL * 0.48]) {
+      const faceoffRing = new THREE.Mesh(
+        new THREE.RingGeometry(1.15, 1.22, 48),
+        new THREE.MeshBasicMaterial({ color: 0x9bb8d6, transparent: true, opacity: 0.62, side: THREE.DoubleSide })
+      );
+      faceoffRing.rotation.x = -Math.PI / 2;
+      faceoffRing.position.z = z;
+      linesGroup.add(faceoffRing);
+
+      const faceoffDot = new THREE.Mesh(
+        new THREE.CircleGeometry(0.16, 24),
+        new THREE.MeshBasicMaterial({ color: 0xdbeafe, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
+      );
+      faceoffDot.rotation.x = -Math.PI / 2;
+      faceoffDot.position.z = z;
+      linesGroup.add(faceoffDot);
+    }
 
     // Player 1 Goal Crease arc
     const p1CreaseGeo = new THREE.RingGeometry(2.8, 2.92, 32, 1, 0, Math.PI);
@@ -638,7 +665,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       const baseMat = new THREE.MeshStandardMaterial({
         color: mainColor,
         roughness: 0.2,
-        metalness: 0.6
+        metalness: 0.6,
+        emissive: glowColor,
+        emissiveIntensity: 0.16
       });
       baseMat.userData.colorRole = 'main';
       const base = new THREE.Mesh(baseGeo, baseMat);
@@ -704,10 +733,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     const puckGeo = new THREE.CylinderGeometry(s.puckRadius, s.puckRadius, 0.24, 32);
     const puckMat = new THREE.MeshStandardMaterial({
       color: 0xff5500,
-      roughness: 0.1,
-      metalness: 0.9,
-      emissive: 0xff3300,
-      emissiveIntensity: 0.4
+    roughness: 0.16,
+    metalness: 0.72,
+    emissive: 0xff3b12,
+    emissiveIntensity: 0.65
     });
     const puckMesh = new THREE.Mesh(puckGeo, puckMat);
     puckMesh.position.set(0, 0.12, 0);
@@ -717,9 +746,19 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
     // Puck glowing center core
     const puckCoreGeo = new THREE.CylinderGeometry(s.puckRadius * 0.55, s.puckRadius * 0.55, 0.26, 24);
-    const puckCoreMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+    const puckCoreMat = new THREE.MeshBasicMaterial({ color: 0xffd2a1 });
     const puckCore = new THREE.Mesh(puckCoreGeo, puckCoreMat);
     puckMesh.add(puckCore);
+    const puckHalo = new THREE.Mesh(
+      new THREE.TorusGeometry(s.puckRadius * 0.82, 0.045, 8, 40),
+      new THREE.MeshBasicMaterial({ color: 0xff7138, transparent: true, opacity: 0.82 })
+    );
+    puckHalo.rotation.x = Math.PI / 2;
+    puckHalo.position.y = 0.16;
+    puckMesh.add(puckHalo);
+    const puckLight = new THREE.PointLight(0xff5b2e, 0.8, 4);
+    puckLight.position.y = 0.35;
+    puckMesh.add(puckLight);
 
     // 8. Arena Environment (Stands, Floating Arena Lights)
     const arenaDomeGeo = new THREE.SphereGeometry(45, 24, 16);
@@ -741,7 +780,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
     // Start with puck in the middle
     s.puckX = 0;
-    s.puckZ = 0;
+    s.puckZ = 4;
     s.puckVx = 0;
     s.puckVz = 0;
     s.isScoring = false;
@@ -1463,7 +1502,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           hostPaddleZ: s.p1Z,
           hostScore: s.p1Score,
           guestScore: s.p2Score,
-          gameOver: s.gameOver
+          gameOver: s.gameOver,
+          servePending: s.servePending,
+          serveSide: s.serveSide
         });
       } else if (currentMode === 'online_guest' && time - s.lastSyncTime > 16) {
         s.lastSyncTime = time;
@@ -1489,6 +1530,20 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     };
   }, [triggerSparks, servePuck]);
 
+  const localServeSide = mode === 'online_guest' ? 'p2' : mode === 'online_host' ? 'p1' : stateRef.current.serveSide;
+  const canChooseServe = mode === 'local' ||
+    (mode === 'online_guest' && stateRef.current.serveSide === 'p2') ||
+    (mode === 'online_host' && stateRef.current.serveSide === 'p1') ||
+    (mode === 'bot' && stateRef.current.serveSide === 'p1');
+  const submitServe = () => {
+    if (mode === 'online_guest') {
+      sendPeerPacket(gameDataChannel, { type: 'serve-request', x: selectedServeX });
+      setAnnouncement('SERVE REQUESTED');
+      return;
+    }
+    servePuck(localServeSide, selectedServeX);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -1504,6 +1559,47 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
             <span className="text-xs sm:text-sm font-black tracking-widest uppercase text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-pink-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]">
               {announcement}
             </span>
+          </div>
+        </div>
+      )}
+
+      {isServing && stateRef.current.servePending && !winner && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center p-4 pointer-events-none">
+          <div className="w-full max-w-sm rounded-2xl border border-cyan-400/40 bg-slate-950/90 p-5 text-center shadow-2xl shadow-cyan-950/40 backdrop-blur-md pointer-events-auto">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-300">
+              {canChooseServe ? 'Choose your serve position' : 'Waiting for opponent to serve'}
+            </p>
+            {canChooseServe ? (
+              <>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {[
+                    { x: -3.5, label: 'Left' },
+                    { x: 0, label: 'Center' },
+                    { x: 3.5, label: 'Right' }
+                  ].map(spot => (
+                    <button
+                      key={spot.label}
+                      onClick={() => setSelectedServeX(spot.x)}
+                      className={`rounded-xl border px-3 py-2 text-sm font-bold transition ${
+                        selectedServeX === spot.x
+                          ? 'border-cyan-300 bg-cyan-400/20 text-cyan-100'
+                          : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-cyan-500/50'
+                      }`}
+                    >
+                      {spot.label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={submitServe}
+                  className="mt-3 w-full rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 px-4 py-2.5 text-sm font-black uppercase tracking-wider text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:brightness-110"
+                >
+                  Serve
+                </button>
+              </>
+            ) : (
+              <p className="mt-2 text-xs text-slate-400">The puck is held until the server chooses a spot.</p>
+            )}
           </div>
         </div>
       )}
