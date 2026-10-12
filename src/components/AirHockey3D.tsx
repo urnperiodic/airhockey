@@ -33,7 +33,10 @@ interface AirHockey3DProps {
   mode: GameMode;
   botDifficulty: BotDifficulty;
   winningScore: number;
+  puckSpeedMultiplier: number;
+  puckFriction: number;
   allowOwnGoals?: boolean;
+  onOnlinePhysicsSettingsChange?: (settings: { speedMultiplier: number; friction: number }) => void;
   roomCode?: string;
   onlineRoom?: RoomRecord | null;
   gameDataChannel?: RTCDataChannel | null;
@@ -50,7 +53,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   mode,
   botDifficulty,
   winningScore = 10,
+  puckSpeedMultiplier,
+  puckFriction,
   allowOwnGoals = true,
+  onOnlinePhysicsSettingsChange,
   roomCode,
   onlineRoom,
   gameDataChannel,
@@ -133,6 +139,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     lastRemotePaddleUpdateTime: 0,
     lastHitCueUpdate: 0,
     puckInHitRange: false,
+    appliedPuckSpeedMultiplier: 1,
 
     // Key states for local 2-player mode
     keys: {} as Record<string, boolean>,
@@ -166,6 +173,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     mode,
     botDifficulty,
     winningScore,
+    puckSpeedMultiplier,
+    puckFriction,
     allowOwnGoals,
     cameraView,
     mouseSensitivityMultiplier,
@@ -175,7 +184,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     onScoreUpdate,
     onGameOver,
     helpDisabled,
-    onAnnouncementChange
+    onAnnouncementChange,
+    onOnlinePhysicsSettingsChange
   });
 
   useEffect(() => {
@@ -183,6 +193,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       mode,
       botDifficulty,
       winningScore,
+      puckSpeedMultiplier,
+      puckFriction,
       allowOwnGoals,
       cameraView,
       mouseSensitivityMultiplier,
@@ -192,9 +204,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       onScoreUpdate,
       onGameOver,
       helpDisabled,
-      onAnnouncementChange
+      onAnnouncementChange,
+      onOnlinePhysicsSettingsChange
     };
-  }, [mode, botDifficulty, winningScore, allowOwnGoals, cameraView, mouseSensitivityMultiplier, onlineRoom, gameDataChannel, onGoalScored, onScoreUpdate, onGameOver, helpDisabled, onAnnouncementChange]);
+  }, [mode, botDifficulty, winningScore, puckSpeedMultiplier, puckFriction, allowOwnGoals, cameraView, mouseSensitivityMultiplier, onlineRoom, gameDataChannel, onGoalScored, onScoreUpdate, onGameOver, helpDisabled, onAnnouncementChange, onOnlinePhysicsSettingsChange]);
 
   const announce = useCallback((message: string) => {
     propsRef.current.onAnnouncementChange?.(message);
@@ -291,6 +304,15 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         s.p2Score = packet.hostScore as number;
         s.servePending = packet.servePending as boolean;
         s.serveSide = packet.serveSide as 'p1' | 'p2';
+        if (
+          typeof packet.puckSpeedMultiplier === 'number' &&
+          typeof packet.puckFriction === 'number'
+        ) {
+          propsRef.current.onOnlinePhysicsSettingsChange?.({
+            speedMultiplier: Math.max(0.5, Math.min(1.5, packet.puckSpeedMultiplier)),
+            friction: Math.max(0.01, Math.min(0.3, packet.puckFriction))
+          });
+        }
         setIsServing(s.servePending);
         if (s.servePending) {
           announce(s.serveSide === 'p2' ? 'YOUR SERVE' : 'OPPONENT SERVE');
@@ -356,8 +378,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     const serveX = Math.max(-3.5, Math.min(3.5, x));
     s.puckX = serveX;
     s.puckZ = server === 'p1' ? 4 : -4;
-    s.puckVx = -serveX * 0.55 + (Math.random() - 0.5) * 1.2;
-    s.puckVz = server === 'p1' ? -7 : 7;
+    s.puckVx = (-serveX * 0.55 + (Math.random() - 0.5) * 1.2) * propsRef.current.puckSpeedMultiplier;
+    s.puckVz = (server === 'p1' ? -7 : 7) * propsRef.current.puckSpeedMultiplier;
     s.servePending = false;
     s.serveDeadline = 0;
     s.serveSide = server;
@@ -935,6 +957,12 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
       const currentMode = propsRef.current.mode;
       const currentDifficulty = propsRef.current.botDifficulty;
+      const speedRatio = propsRef.current.puckSpeedMultiplier / s.appliedPuckSpeedMultiplier;
+      if (speedRatio !== 1) {
+        s.puckVx *= speedRatio;
+        s.puckVz *= speedRatio;
+        s.appliedPuckSpeedMultiplier = propsRef.current.puckSpeedMultiplier;
+      }
       const targetPuckRadius = currentMode === 'bot' ? 0.55 : 0.45;
       if (s.puckRadius !== targetPuckRadius) {
         s.puckRadius = targetPuckRadius;
@@ -1132,7 +1160,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
         for (let step = 0; step < subSteps; step++) {
           // Friction / Air cushion: slide smoothly with very low drag
-          const drag = Math.exp(-0.08 * subDt);
+          const drag = Math.exp(-propsRef.current.puckFriction * subDt);
           s.puckVx *= drag;
           s.puckVz *= drag;
 
@@ -1164,6 +1192,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
               const impulse = -(1 + restitution) * normVel;
               s.puckVx += nx * impulse + s.p1Vx * 0.7;
               s.puckVz += nz * impulse + s.p1Vz * 0.7;
+              s.puckVx *= propsRef.current.puckSpeedMultiplier;
+              s.puckVz *= propsRef.current.puckSpeedMultiplier;
 
               // Ensure crisp energetic exit velocity so puck never dies
               const exitSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
@@ -1202,6 +1232,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
               const impulse = -(1 + restitution) * normVel;
               s.puckVx += nx * impulse + s.p2Vx * 0.7;
               s.puckVz += nz * impulse + s.p2Vz * 0.7;
+              s.puckVx *= propsRef.current.puckSpeedMultiplier;
+              s.puckVz *= propsRef.current.puckSpeedMultiplier;
 
               const exitSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
               if (exitSpd < 12) {
@@ -1366,7 +1398,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           }
 
           // High-velocity arcade speed cap
-          const maxSpd = 50;
+          const maxSpd = 50 * propsRef.current.puckSpeedMultiplier;
           const currSpd = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
           if (currSpd > maxSpd) {
             s.puckVx = (s.puckVx / currSpd) * maxSpd;
@@ -1580,7 +1612,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           guestScore: s.p2Score,
           gameOver: s.gameOver,
           servePending: s.servePending,
-          serveSide: s.serveSide
+          serveSide: s.serveSide,
+          puckSpeedMultiplier: propsRef.current.puckSpeedMultiplier,
+          puckFriction: propsRef.current.puckFriction
         });
       } else if (currentMode === 'online_guest' && time - s.lastSyncTime > 16) {
         s.lastSyncTime = time;

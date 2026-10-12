@@ -58,6 +58,8 @@ export default function App() {
   const [winningScore, setWinningScore] = useState(10);
   const [allowOwnGoals, setAllowOwnGoals] = useState(true);
   const [helpDisabled, setHelpDisabled] = useState(false);
+  const [puckSpeedMultiplier, setPuckSpeedMultiplier] = useState(1);
+  const [puckFriction, setPuckFriction] = useState(0.08);
   const [gameAnnouncement, setGameAnnouncement] = useState('');
   const [playerScore, setPlayerScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
@@ -267,6 +269,20 @@ export default function App() {
               {helpDisabled ? 'Enable Help' : 'Disable Help'}
             </button>
           )}
+          {(mode === 'online_host' || mode === 'bot') && (
+            <button
+              onClick={() => setAllowOwnGoals(value => !value)}
+              className={`rounded-md border px-2 py-1 text-[10px] font-medium ${
+                allowOwnGoals
+                  ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                  : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+              }`}
+              aria-pressed={allowOwnGoals}
+              title="Toggle own-goal scoring"
+            >
+              Own goals: {allowOwnGoals ? 'On' : 'Off'}
+            </button>
+          )}
         </div>
 
         {gameAnnouncement && (
@@ -274,23 +290,6 @@ export default function App() {
             <div className="max-w-full truncate rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-medium text-slate-200">
               {gameAnnouncement.toLowerCase().replace(/^./, letter => letter.toUpperCase())}
             </div>
-          </div>
-        )}
-
-        {(mode === 'online_host' || mode === 'bot') && (
-          <div className="flex items-center gap-2">
-            <span className="hidden md:inline text-slate-300 text-xs">Own goals:</span>
-            <button
-              onClick={() => setAllowOwnGoals(value => !value)}
-              className={`px-2.5 py-1 rounded-md border text-xs font-medium ${
-                allowOwnGoals
-                  ? 'bg-rose-500/10 border-rose-500/40 text-rose-300'
-                  : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
-              }`}
-              aria-pressed={allowOwnGoals}
-            >
-              {allowOwnGoals ? 'Allowed' : 'Prevented'}
-            </button>
           </div>
         )}
 
@@ -406,6 +405,49 @@ export default function App() {
                   </div>
                 )}
 
+                <div className="border-t border-slate-800 pt-3">
+                  <p className="mb-2 font-medium text-slate-200">Puck physics</p>
+                  <label className="mb-2 block">
+                    <span className="flex items-center justify-between text-slate-300">
+                      <span>Speed</span>
+                      <span className="font-mono text-cyan-300">{puckSpeedMultiplier.toFixed(2)}x</span>
+                    </span>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="1.5"
+                      step="0.05"
+                      value={puckSpeedMultiplier}
+                      disabled={mode === 'online_guest'}
+                      onChange={event => setPuckSpeedMultiplier(Number(event.target.value))}
+                      className="mt-1 w-full accent-cyan-500 disabled:opacity-50"
+                      aria-label="Puck speed"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="flex items-center justify-between text-slate-300">
+                      <span>Friction</span>
+                      <span className="font-mono text-cyan-300">{puckFriction.toFixed(2)}</span>
+                    </span>
+                    <input
+                      type="range"
+                      min="0.01"
+                      max="0.3"
+                      step="0.01"
+                      value={puckFriction}
+                      disabled={mode === 'online_guest'}
+                      onChange={event => setPuckFriction(Number(event.target.value))}
+                      className="mt-1 w-full accent-cyan-500 disabled:opacity-50"
+                      aria-label="Puck friction"
+                    />
+                  </label>
+                  {mode === 'online_guest' && (
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      Match physics are set by the host.
+                    </p>
+                  )}
+                </div>
+
                 {/* Camera View */}
                 <div className="flex flex-col gap-1">
                   <span className="text-slate-300 font-medium">Camera Perspective:</span>
@@ -520,11 +562,17 @@ export default function App() {
           mode={mode}
           botDifficulty={botDifficulty}
           winningScore={winningScore}
+          puckSpeedMultiplier={puckSpeedMultiplier}
+          puckFriction={puckFriction}
           allowOwnGoals={allowOwnGoals}
           cameraView={cameraView}
           mouseSensitivityMultiplier={mouseSensitivity}
           helpDisabled={helpDisabled}
           onAnnouncementChange={setGameAnnouncement}
+          onOnlinePhysicsSettingsChange={settings => {
+            setPuckSpeedMultiplier(settings.speedMultiplier);
+            setPuckFriction(settings.friction);
+          }}
           roomCode={onlineRoom?.roomCode}
           onlineRoom={onlineRoom}
           gameDataChannel={gameDataChannel}
