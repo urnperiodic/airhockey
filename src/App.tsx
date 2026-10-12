@@ -1,7 +1,7 @@
 /**
  * Neon Air Hockey 3D - Main Application
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AirHockey3D,
   GameMode,
@@ -89,6 +89,8 @@ export default function App() {
   // Online Room State
   const [onlineRoom, setOnlineRoom] = useState<RoomRecord | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const pendingRoomSync = useRef<{ roomId: string; fields: Partial<RoomRecord> } | null>(null);
+  const isSyncingRoom = useRef(false);
 
   // Modals
   const [isTesterOpen, setIsTesterOpen] = useState(false);
@@ -139,6 +141,8 @@ export default function App() {
         const data = snapshot.data() as RoomRecord;
         setOnlineRoom(data);
       }
+    }, error => {
+      console.error('Online room updates failed:', error);
     });
 
     return () => unsub();
@@ -155,10 +159,38 @@ export default function App() {
   // Online Room sync callback from 3D component
   const handleSyncRoom = useCallback((updatedProps: Partial<RoomRecord>) => {
     if (!onlineRoom?.id) return;
-    updateDoc(doc(db, 'rooms', onlineRoom.id), {
-      ...updatedProps,
-      updatedAt: new Date().toISOString()
-    }).catch(() => {});
+
+    const queued = pendingRoomSync.current;
+    pendingRoomSync.current = {
+      roomId: onlineRoom.id,
+      fields: queued?.roomId === onlineRoom.id
+        ? { ...queued.fields, ...updatedProps }
+        : updatedProps
+    };
+
+    if (isSyncingRoom.current) return;
+
+    const flushPendingSync = async () => {
+      isSyncingRoom.current = true;
+      try {
+        while (pendingRoomSync.current) {
+          const pending = pendingRoomSync.current;
+          pendingRoomSync.current = null;
+          try {
+            await updateDoc(doc(db, 'rooms', pending.roomId), {
+              ...pending.fields,
+              updatedAt: new Date().toISOString()
+            });
+          } catch (error) {
+            console.error('Failed to synchronize online match state:', error);
+          }
+        }
+      } finally {
+        isSyncingRoom.current = false;
+      }
+    };
+
+    void flushPendingSync();
   }, [onlineRoom?.id]);
 
   // Handle Game Over: record score to leaderboard

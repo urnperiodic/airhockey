@@ -103,6 +103,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     servingWait: 1.2,
     botGracePeriodUntil: 0,
     lastTouchedBy: null as 'player' | 'opponent' | null,
+    isGuestPredictingPaddleHit: false,
 
     // Online sync throttle
     lastSyncTime: 0,
@@ -172,6 +173,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         // Map normalized room puck coordinates back to table
         stateRef.current.puckX = (onlineRoom.puckX - 0.5) * stateRef.current.tableWidth;
         stateRef.current.puckZ = (onlineRoom.puckY - 0.5) * stateRef.current.tableLength;
+        stateRef.current.puckVx = onlineRoom.puckVx ?? 0;
+        stateRef.current.puckVz = onlineRoom.puckVy ?? 0;
       }
       if (onlineRoom.hostPaddleX !== undefined && onlineRoom.hostPaddleY !== undefined) {
         // Host's near-side paddle is on the far side from the guest's view.
@@ -775,7 +778,9 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       const goalHalfW = s.goalWidth / 2;
       const puckR = s.puckRadius;
       const malletR1 = s.p1MalletRadius;
-      const malletR2 = s.p2MalletRadius;
+      const malletR2 = currentMode === 'online_host' || currentMode === 'online_guest'
+        ? malletR1
+        : s.p2MalletRadius;
 
       // 1. Update Player 1 position (Smooth lerp with velocity calculation)
       // Keyboard support for Player 1:
@@ -1130,6 +1135,45 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
         }
       }
 
+      // Predict local guest mallet hits while the host's authoritative puck update is in flight.
+      if (currentMode === 'online_guest' && !s.gameOver) {
+        const dx = s.puckX - s.p1X;
+        const dz = s.puckZ - s.p1Z;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        const minDistance = puckR + malletR1;
+
+        if (distance > minDistance + 0.2) {
+          s.isGuestPredictingPaddleHit = false;
+        } else if (distance < minDistance && distance > 0.0001 && !s.isGuestPredictingPaddleHit) {
+          const nx = dx / distance;
+          const nz = dz / distance;
+          s.puckX = s.p1X + nx * minDistance;
+          s.puckZ = s.p1Z + nz * minDistance;
+
+          const relativeVx = s.puckVx - s.p1Vx;
+          const relativeVz = s.puckVz - s.p1Vz;
+          const normalVelocity = relativeVx * nx + relativeVz * nz;
+
+          if (normalVelocity < 0) {
+            const impulse = -(1 + 1.45) * normalVelocity;
+            s.puckVx += nx * impulse + s.p1Vx * 0.7;
+            s.puckVz += nz * impulse + s.p1Vz * 0.7;
+
+            const exitSpeed = Math.sqrt(s.puckVx * s.puckVx + s.puckVz * s.puckVz);
+            if (exitSpeed < 12) {
+              const boost = 12 / Math.max(0.1, exitSpeed);
+              s.puckVx *= boost;
+              s.puckVz *= boost;
+            }
+
+            s.lastTouchedBy = 'player';
+            sound.playPaddleHit(Math.min(2, exitSpeed / 12));
+            triggerSparks(s.puckX, 0.2, s.puckZ, 0x00e5ff, 14);
+          }
+          s.isGuestPredictingPaddleHit = true;
+        }
+      }
+
       // 4. Goal Detection Handler
       function handleGoal(scorer: 'player' | 'opponent') {
         if (s.isScoring || s.gameOver) return;
@@ -1201,6 +1245,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       if (s.p2Mesh) {
         s.p2Mesh.position.x = s.p2X;
         s.p2Mesh.position.z = s.p2Z;
+        const onlineMalletScale = currentMode === 'online_host' || currentMode === 'online_guest'
+          ? malletR1 / s.p2MalletRadius
+          : 1;
+        s.p2Mesh.scale.setScalar(onlineMalletScale);
       }
 
       // 6. Update Spark Particles
