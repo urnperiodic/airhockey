@@ -120,6 +120,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     puckVx: 0,
     puckVz: 0,
     puckRailRecoveryTime: 0,
+    puckCornerTrapTime: 0,
     puckResetVersion: 0,
     lastSeenPuckResetVersion: null as number | null,
     hostResetRequested: false,
@@ -252,6 +253,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckVx = 0;
     s.puckVz = 0;
     s.puckRailRecoveryTime = 0;
+    s.puckCornerTrapTime = 0;
     s.puckResetVersion += 1;
     s.hostResetRequested = false;
     s.guestResetRequested = false;
@@ -467,6 +469,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckVx = (-serveX * 0.55 + (Math.random() - 0.5) * 1.2) * propsRef.current.puckSpeedMultiplier;
     s.puckVz = (server === 'p1' ? -7 : 7) * propsRef.current.puckSpeedMultiplier;
     s.puckRailRecoveryTime = 0;
+    s.puckCornerTrapTime = 0;
     s.servePending = false;
     s.serveDeadline = 0;
     s.serveSide = server;
@@ -502,6 +505,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     s.puckVx = 0;
     s.puckVz = 0;
     s.puckRailRecoveryTime = 0;
+    s.puckCornerTrapTime = 0;
     s.hostResetRequested = false;
     s.guestResetRequested = false;
     s.player1ResetRequested = false;
@@ -1459,6 +1463,18 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
           const nearEndRail = Math.abs(s.puckX) > goalOpeningHalfWidth &&
             halfL - Math.abs(s.puckZ) <= puckR + 0.3;
           const nearCorner = nearSideRail && nearEndRail;
+          const trappedByGoalCorner = Math.abs(s.puckX) >= goalHalfW + postBand &&
+            halfL - Math.abs(s.puckZ) <= 2.5;
+          if (trappedByGoalCorner) {
+            s.puckCornerTrapTime += subDt;
+            if (s.puckCornerTrapTime >= 2) {
+              completePuckReset();
+              break;
+            }
+          } else {
+            s.puckCornerTrapTime = 0;
+          }
+
           if ((nearSideRail || nearEndRail) && currSpd < 0.75) {
             s.puckRailRecoveryTime += subDt;
             if (s.puckRailRecoveryTime >= 0.75) {
