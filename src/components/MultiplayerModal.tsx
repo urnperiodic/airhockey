@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   db,
   auth,
@@ -9,12 +9,11 @@ import {
 import {
   doc,
   setDoc,
-  getDoc,
-  updateDoc,
+  runTransaction,
   collection,
   query,
   where,
-  getDocs,
+  getDocsFromServer,
   onSnapshot
 } from 'firebase/firestore';
 import {
@@ -50,8 +49,10 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const [isJoining, setIsJoining] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [copied, setCopied] = useState(false);
+  const roomListenerRef = useRef<(() => void) | null>(null);
 
-  // Generate 6-digit code on mount or when switching to create tab
+  const WAITING_ROOM_TIMEOUT_MS = 10 * 60 * 1000;
+
   const generateNewRoomCode = () => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setGeneratedCode(code);
@@ -59,10 +60,50 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   };
 
   useEffect(() => {
-    if (isOpen && tab === 'create' && !generatedCode) {
+    if (isOpen && tab === 'create') {
       generateNewRoomCode();
     }
-  }, [isOpen, tab, generatedCode]);
+  }, [isOpen, tab]);
+
+  const abandonWaitingRoom = async () => {
+    if (!hostRoomId || !isWaitingForGuest) return;
+
+    await runTransaction(db, async transaction => {
+      const roomRef = doc(db, 'rooms', hostRoomId);
+      const roomSnap = await transaction.get(roomRef);
+      if (roomSnap.exists() && roomSnap.data().status === 'waiting') {
+        transaction.update(roomRef, {
+          status: 'abandoned',
+          updatedAt: new Date().toISOString()
+        });
+      }
+    });
+    roomListenerRef.current?.();
+    roomListenerRef.current = null;
+    setHostRoomId(null);
+    setIsWaitingForGuest(false);
+  };
+
+  const handleClose = async () => {
+    try {
+      await abandonWaitingRoom();
+      onClose();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMessage(`Could not close the waiting room: ${msg}`);
+    }
+  };
+
+  const handleTabChange = async (nextTab: 'create' | 'join') => {
+    try {
+      await abandonWaitingRoom();
+      setTab(nextTab);
+      setErrorMessage('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMessage(`Could not close the waiting room: ${msg}`);
+    }
+  };
 
   // Handle Host creating room in Firestore
   const handleCreateRoom = async () => {
@@ -100,12 +141,21 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           const roomData = docSnap.data() as RoomRecord;
           if (roomData.status === 'playing' && roomData.guestId) {
             unsub();
+            roomListenerRef.current = null;
+            setIsWaitingForGuest(false);
+            setHostRoomId(null);
             sound.playWhistle();
             onStartOnlineMatch('online_host', roomData);
             onClose();
           }
         }
+      }, err => {
+        roomListenerRef.current?.();
+        roomListenerRef.current = null;
+        setIsWaitingForGuest(false);
+        setErrorMessage(`Room connection lost: ${err.message}`);
       });
+      roomListenerRef.current = unsub;
     } catch (err: unknown) {
       setIsWaitingForGuest(false);
       const msg = err instanceof Error ? err.message : String(err);
@@ -131,12 +181,8 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     const guestName = user?.displayName || 'Player 2 (Challenger)';
 
     try {
-      const q = query(
-        collection(db, 'rooms'),
-        where('roomCode', '==', code),
-        where('status', '==', 'waiting')
-      );
-      const querySnap = await getDocs(q);
+      const q = query(collection(db, 'rooms'), where('roomCode', '==', code));
+      const querySnap = await getDocsFromServer(q);
 
       if (querySnap.empty) {
         setIsJoining(false);
@@ -144,23 +190,52 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         return;
       }
 
-      const roomDoc = querySnap.docs[0];
-      const targetRoomId = roomDoc.id;
+      let joinedRoom: RoomRecord | null = null;
+      let hadWaitingRoom = false;
 
-      // Update room status to playing
-      await updateDoc(doc(db, 'rooms', targetRoomId), {
-        guestId,
-        guestName,
-        status: 'playing',
-        updatedAt: new Date().toISOString()
-      });
+      for (const roomDoc of querySnap.docs) {
+        const roomRef = doc(db, 'rooms', roomDoc.id);
+        const roomData = await runTransaction(db, async transaction => {
+          const currentSnap = await transaction.get(roomRef);
+          if (!currentSnap.exists()) return null;
 
-      const updatedSnap = await getDoc(doc(db, 'rooms', targetRoomId));
-      const roomData = updatedSnap.data() as RoomRecord;
+          const currentRoom = currentSnap.data() as RoomRecord;
+          if (currentRoom.roomCode !== code || currentRoom.status !== 'waiting') return null;
+          hadWaitingRoom = true;
+
+          const createdAt = Date.parse(currentRoom.createdAt);
+          if (!Number.isFinite(createdAt) || Date.now() - createdAt > WAITING_ROOM_TIMEOUT_MS) {
+            return null;
+          }
+
+          transaction.update(roomRef, {
+            guestId,
+            guestName,
+            status: 'playing',
+            updatedAt: new Date().toISOString()
+          });
+          return { ...currentRoom, guestId, guestName, status: 'playing' as const };
+        });
+
+        if (roomData) {
+          joinedRoom = roomData;
+          break;
+        }
+      }
+
+      if (!joinedRoom) {
+        setIsJoining(false);
+        setErrorMessage(
+          hadWaitingRoom
+            ? 'That room has expired or another player just joined. Ask the host to create a new match code.'
+            : 'That code is no longer waiting for a player. Ask the host to create a new match code.'
+        );
+        return;
+      }
 
       setIsJoining(false);
       sound.playWhistle();
-      onStartOnlineMatch('online_guest', roomData);
+      onStartOnlineMatch('online_guest', joinedRoom);
       onClose();
 
     } catch (err: unknown) {
@@ -197,7 +272,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
           >
             <X className="w-5 h-5" />
@@ -207,7 +282,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         {/* Tab switch */}
         <div className="flex border-b border-slate-800 bg-slate-950/50">
           <button
-            onClick={() => { setTab('create'); setErrorMessage(''); }}
+            onClick={() => handleTabChange('create')}
             className={`flex-1 py-3 text-sm font-semibold transition border-b-2 ${
               tab === 'create'
                 ? 'border-cyan-400 text-cyan-400 bg-cyan-500/5'
@@ -217,7 +292,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             Host Match (Create Code)
           </button>
           <button
-            onClick={() => { setTab('join'); setErrorMessage(''); }}
+            onClick={() => handleTabChange('join')}
             className={`flex-1 py-3 text-sm font-semibold transition border-b-2 ${
               tab === 'join'
                 ? 'border-cyan-400 text-cyan-400 bg-cyan-500/5'
