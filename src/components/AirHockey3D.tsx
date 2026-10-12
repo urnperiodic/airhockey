@@ -170,11 +170,11 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   useEffect(() => {
     if (mode === 'online_guest' && onlineRoom) {
       if (onlineRoom.puckX !== undefined && onlineRoom.puckY !== undefined) {
-        // Map normalized room puck coordinates back to table
+        // Flip the host's depth axis so the puck stays aligned with the guest's near-side mallet.
         stateRef.current.puckX = (onlineRoom.puckX - 0.5) * stateRef.current.tableWidth;
-        stateRef.current.puckZ = (onlineRoom.puckY - 0.5) * stateRef.current.tableLength;
+        stateRef.current.puckZ = (0.5 - onlineRoom.puckY) * stateRef.current.tableLength;
         stateRef.current.puckVx = onlineRoom.puckVx ?? 0;
-        stateRef.current.puckVz = onlineRoom.puckVy ?? 0;
+        stateRef.current.puckVz = -(onlineRoom.puckVy ?? 0);
       }
       if (onlineRoom.hostPaddleX !== undefined && onlineRoom.hostPaddleY !== undefined) {
         // Host's near-side paddle is on the far side from the guest's view.
