@@ -39,6 +39,7 @@ interface AirHockey3DProps {
   gameDataChannel?: RTCDataChannel | null;
   cameraView: CameraView;
   mouseSensitivityMultiplier?: number;
+  helpDisabled?: boolean;
   onGoalScored?: (scorer: 'player' | 'opponent', scores: { player: number; opponent: number }) => void;
   onScoreUpdate?: (scores: { player: number; opponent: number }) => void;
   onGameOver?: (winner: 'player' | 'opponent', scores: { player: number; opponent: number }) => void;
@@ -54,6 +55,7 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   gameDataChannel,
   cameraView,
   mouseSensitivityMultiplier = 2.5,
+  helpDisabled = false,
   onGoalScored,
   onScoreUpdate,
   onGameOver
@@ -67,7 +69,6 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
   const [announcement, setAnnouncement] = useState<string>('GET READY');
   const [isServing, setIsServing] = useState(true);
   const [selectedServeX, setSelectedServeX] = useState(0);
-  const [helpDisabled, setHelpDisabled] = useState(false);
   const [winner, setWinner] = useState<'player' | 'opponent' | null>(null);
 
   // References for render loop & physics mutable states to run at solid 60+ FPS without re-renders
@@ -166,7 +167,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     gameDataChannel,
     onGoalScored,
     onScoreUpdate,
-    onGameOver
+    onGameOver,
+    helpDisabled
   });
 
   useEffect(() => {
@@ -181,9 +183,10 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       gameDataChannel,
       onGoalScored,
       onScoreUpdate,
-      onGameOver
+      onGameOver,
+      helpDisabled
     };
-  }, [mode, botDifficulty, winningScore, allowOwnGoals, cameraView, mouseSensitivityMultiplier, onlineRoom, gameDataChannel, onGoalScored, onScoreUpdate, onGameOver]);
+  }, [mode, botDifficulty, winningScore, allowOwnGoals, cameraView, mouseSensitivityMultiplier, onlineRoom, gameDataChannel, onGoalScored, onScoreUpdate, onGameOver, helpDisabled]);
 
   // Read initial scores from the room; live match state comes through WebRTC.
   useEffect(() => {
@@ -733,11 +736,11 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     // 7. 3D Puck
     const puckGeo = new THREE.CylinderGeometry(s.puckRadius, s.puckRadius, 0.24, 32);
     const puckMat = new THREE.MeshStandardMaterial({
-      color: 0xff5500,
-    roughness: 0.16,
-    metalness: 0.72,
-    emissive: 0xff3b12,
-    emissiveIntensity: 0.65
+      color: 0xff6a24,
+      roughness: 0.12,
+      metalness: 0.55,
+      emissive: 0xff3b12,
+      emissiveIntensity: 2.2
     });
     const puckMesh = new THREE.Mesh(puckGeo, puckMat);
     puckMesh.position.set(0, 0.12, 0);
@@ -747,17 +750,17 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
 
     // Puck glowing center core
     const puckCoreGeo = new THREE.CylinderGeometry(s.puckRadius * 0.55, s.puckRadius * 0.55, 0.26, 24);
-    const puckCoreMat = new THREE.MeshBasicMaterial({ color: 0xffd2a1 });
+    const puckCoreMat = new THREE.MeshBasicMaterial({ color: 0xfff0c2 });
     const puckCore = new THREE.Mesh(puckCoreGeo, puckCoreMat);
     puckMesh.add(puckCore);
     const puckHalo = new THREE.Mesh(
-      new THREE.TorusGeometry(s.puckRadius * 0.82, 0.045, 8, 40),
-      new THREE.MeshBasicMaterial({ color: 0xff7138, transparent: true, opacity: 0.82 })
+      new THREE.TorusGeometry(s.puckRadius * 0.9, 0.075, 8, 40),
+      new THREE.MeshBasicMaterial({ color: 0x29f4ff, transparent: true, opacity: 0.98 })
     );
     puckHalo.rotation.x = Math.PI / 2;
     puckHalo.position.y = 0.16;
     puckMesh.add(puckHalo);
-    const puckLight = new THREE.PointLight(0xff5b2e, 0.8, 4);
+    const puckLight = new THREE.PointLight(0xff4dff, 2.4, 6);
     puckLight.position.y = 0.35;
     puckMesh.add(puckLight);
 
@@ -1551,13 +1554,11 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
     setSelectedServeX(randomServeX);
     submitServe(randomServeX);
   };
-  const toggleHelp = () => {
-    const nextHelpDisabled = !helpDisabled;
-    stateRef.current.p1MalletRadius = nextHelpDisabled
+  useEffect(() => {
+    stateRef.current.p1MalletRadius = mode === 'bot' && helpDisabled
       ? stateRef.current.p2MalletRadius
       : 1.4;
-    setHelpDisabled(nextHelpDisabled);
-  };
+  }, [mode, helpDisabled]);
 
   return (
     <div
@@ -1579,8 +1580,8 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
       )}
 
       {isServing && stateRef.current.servePending && !winner && (
-        <div className="absolute bottom-14 sm:bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-          <div className="rounded-xl border border-cyan-400/40 bg-slate-950/90 px-3 py-2 text-center shadow-lg shadow-cyan-950/40 backdrop-blur-md pointer-events-auto">
+        <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-30 w-[calc(100vw-1rem)] max-w-xs -translate-x-1/2 pointer-events-none">
+          <div className="rounded-xl border border-cyan-400/40 bg-slate-950/95 px-3 py-2 text-center shadow-lg shadow-cyan-950/40 backdrop-blur-md pointer-events-auto">
             <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
               {canChooseServe ? 'Choose serve position' : 'Waiting for opponent to serve'}
             </p>
@@ -1625,16 +1626,6 @@ export const AirHockey3D: React.FC<AirHockey3DProps> = ({
             )}
           </div>
         </div>
-      )}
-
-      {mode === 'bot' && !winner && (
-        <button
-          onClick={toggleHelp}
-          className="absolute top-14 left-3 z-20 rounded-lg border border-slate-700 bg-slate-950/85 px-3 py-2 text-xs font-bold text-slate-200 shadow-lg backdrop-blur transition hover:border-cyan-400/60 hover:text-cyan-100"
-          aria-pressed={helpDisabled}
-        >
-          {helpDisabled ? 'Enable Help' : 'Disable Help'}
-        </button>
       )}
 
       {/* Game Over Screen */}

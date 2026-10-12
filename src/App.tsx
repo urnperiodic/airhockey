@@ -57,6 +57,7 @@ export default function App() {
   const [cameraView, setCameraView] = useState<CameraView>('fpv');
   const [winningScore, setWinningScore] = useState(10);
   const [allowOwnGoals, setAllowOwnGoals] = useState(true);
+  const [helpDisabled, setHelpDisabled] = useState(false);
   const [playerScore, setPlayerScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
   const [mouseSensitivity, setMouseSensitivity] = useState<number>(2.5);
@@ -256,6 +257,15 @@ export default function App() {
               {mode === 'bot' ? 'BOT' : mode === 'local' ? 'P2' : 'OPP'}
             </span>
           </div>
+          {mode === 'bot' && (
+            <button
+              onClick={() => setHelpDisabled(disabled => !disabled)}
+              className="ml-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-100"
+              aria-pressed={helpDisabled}
+            >
+              {helpDisabled ? 'Enable Help' : 'Disable Help'}
+            </button>
+          )}
         </div>
 
         {mode === 'online_host' && (
@@ -499,6 +509,7 @@ export default function App() {
           allowOwnGoals={allowOwnGoals}
           cameraView={cameraView}
           mouseSensitivityMultiplier={mouseSensitivity}
+          helpDisabled={helpDisabled}
           roomCode={onlineRoom?.roomCode}
           onlineRoom={onlineRoom}
           gameDataChannel={gameDataChannel}
